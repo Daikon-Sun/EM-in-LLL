@@ -5,6 +5,7 @@ import re
 import torch
 from settings import parse_args
 import logging
+logger = logging.getLogger(__name__)
 from multiprocessing import Pool
 
 
@@ -20,7 +21,7 @@ def dynamic_collate_fn(batch):
 class TextClassificationDataset(Dataset):
     def __init__(self, root_dir, mode, args, tokenizer):
 
-        logging.info("Parsing data...")
+        logger.info("Parsing data...")
 
         self.root_dir = root_dir
         self.mode = mode
@@ -47,10 +48,10 @@ class TextClassificationDataset(Dataset):
         self.num_labels = max(label for label, _ in self.data) + 1
 
         if self.mode in ["train", "valid"] and  self.num_train > len(self.data):
-            logging.warning("number of data is less than args.num_train")
+            logger.warning("number of data is less than args.num_train")
             self.num_train = args.num_train = len(self.data)
         if self.mode == "test" and self.num_test > len(self.data):
-            logging.warning("number of data is less than args.num_test")
+            logger.warning("number of data is less than args.num_test")
             self.num_test = args.num_test = len(self.data)
 
         if mode == "test":

@@ -1,5 +1,6 @@
 import os
 import argparse
+import shutil
 from multiprocessing import cpu_count
 import torch
 from pytorch_transformers import BertForSequenceClassification, BertTokenizer, BertConfig
@@ -16,7 +17,7 @@ def parse_args():
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
     parser.add_argument("--batch_size", type=int, default=7)
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--learning_rate", type=float, default=5e-5)
+    parser.add_argument("--learning_rate", type=float, default=3e-5)
     parser.add_argument("--logging_steps", type=int, default=500)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     parser.add_argument("--model_name", type=str, default="bert-base-uncased")
@@ -32,13 +33,20 @@ def parse_args():
     parser.add_argument("--tasks", type=str, default="datasets/ag_news_csv")
     parser.add_argument("--valid_ratio", type=float, default=0.2)
     parser.add_argument("--warmup_steps", type=int, default=0)
-    parser.add_argument("--weight_decay", type=float, default=0.0)
-    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument("--weight_decay", type=float, default=1e-4)
+    # parser.add_argument('--seed', type=int, default=42)
 
     args = parser.parse_args()
 
     if os.path.exists(args.output_dir):
-        raise ValueError("Output directory exists!")
+        choice = input("Output directory ({}) exists. Remove? ".format(args.output_dir))
+        if choice.lower()[0] == 'y':
+            shutil.rmtree(args.output_dir)
+            os.makedirs(args.output_dir)
+        else:
+            raise ValueError("Output directory exists!")
+    else:
+        os.makedirs(args.output_dir)
     args.tasks = args.tasks.split('&')
     args.n_gpu = torch.cuda.device_count()
     args.device = "cuda" if args.n_gpu > 0 else "cpu"
