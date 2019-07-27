@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 from settings import parse_args, model_classes
-from data_utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs
+from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs
 from memory import Memory
 
 

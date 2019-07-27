@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 from settings import model_classes
-from data_utils import prepare_inputs
+from utils import prepare_inputs
 
 
 class Memory:
