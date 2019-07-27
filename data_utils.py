@@ -21,8 +21,8 @@ def dynamic_collate_fn(batch):
     labels = torch.tensor([b[0] for b in batch], dtype=torch.long)
     input_lens = [len(b[1]) for b in batch]
     max_len = max(input_lens)
-    input_ids = torch.tensor([b[1] + [0] * (max_len - l) for b, l in zip(batch, input_lens)], dtype=torch.long)
-    masks = torch.tensor([[1] * l + [0] * (max_len - l) for l in input_lens], dtype=torch.long)
+    input_ids = torch.tensor([b[1] + [0]*(max_len - l) for b, l in zip(batch, input_lens)], dtype=torch.long)
+    masks = torch.tensor([[1] * l + [0]*(max_len - l) for l in input_lens], dtype=torch.long)
     return input_ids, masks, labels
 
 

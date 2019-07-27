@@ -22,6 +22,7 @@ def test_task(args, model, memory, test_dataset):
         with torch.no_grad():
             n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
             outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
+            q_input_ids, q_masks, q_labels = memory.query(input_ids, masks)
             loss, logits = outputs[:2]
             cur_n_inputs += n_inputs
             cur_loss += loss.item() * n_inputs
@@ -50,23 +51,24 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
     updates_per_epoch = len(train_dataset)
     global_step = 0
     model.zero_grad()
-
     tot_epoch_loss, tot_n_inputs = 0, 0
+
+    def update_parameters(loss):
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+        scheduler.step()
+        optimizer.step()
+        model.zero_grad()
+
     for step, batch in enumerate(train_dataloader):
         model.train()
         n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
         memory.add(input_ids, masks, labels)
-        outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
-        loss = outputs[0]
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-
+        loss = model(input_ids=input_ids, attention_mask=masks, labels=labels)[0]
+        update_parameters(loss)
+        global_step += 1
         tot_n_inputs += n_inputs
         tot_epoch_loss += loss.item() * n_inputs
-        scheduler.step()
-        optimizer.step()
-        model.zero_grad()
-        global_step += 1
 
         if global_step % args.logging_steps == 0:
             logger.info("progress: {:.2f}, global step: {}, lr: {:.2E}, avg loss: {:.3f}".format(
@@ -76,6 +78,10 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
             if args.debug:
                 break
 
+        if args.replay_interval >= 1 and (step + 1) % args.replay_interval == 0:
+            input_ids, masks, labels = memory.sample(args.batch_size)
+            loss = model(input_ids=input_ids, attention_mask=masks, labels=labels)[0]
+            update_parameters(loss)
 
 
 def main():

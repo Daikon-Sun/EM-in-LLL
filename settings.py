@@ -23,7 +23,7 @@ def parse_args():
 
     parser.add_argument("--adapt_steps", type=int, default=30)
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
-    parser.add_argument("--batch_size", type=int, default=10)
+    parser.add_argument("--batch_size", type=int, default=6)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--logging_steps", type=int, default=500)
@@ -35,6 +35,7 @@ def parse_args():
     parser.add_argument("--n_train", type=int, default=115000)
     parser.add_argument("--n_labels", type=int, default=33)
     parser.add_argument("--n_workers", type=int, default=cpu_count())
+    parser.add_argument("--replay_interval", type=int, default=100)
     parser.add_argument("--output_dir", type=str, default="outputs")
     parser.add_argument("--reproduce", action="store_true")
     parser.add_argument("--tasks", type=str, default="datasets/yelp_review_full_csv&datasets/ag_news_csv")
