@@ -7,99 +7,78 @@ import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
+
 from settings import parse_args, model_classes
-from utils import TextClassificationDataset, dynamic_collate_fn
+from data_utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs
+from memory import Memory
 
 
-def prepare_inputs(batch):
-    num_inputs = len(batch[0])
-    input_ids, masks, labels = tuple(b.to(args.device) for b in batch)
-    return num_inputs, input_ids, masks, labels
-
-
-def run_task(task, args, model):
-    config_class, model_class, tokenizer_class = model_classes[args.model_type]
-
-    tokenizer = tokenizer_class.from_pretrained(args.model_name)
-    train_dataset = TextClassificationDataset(task, "train", args, tokenizer)
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=not args.reproduce,
-                                  num_workers=args.num_workers, collate_fn=dynamic_collate_fn)
-
-    if args.valid_ratio > 0:
-        valid_dataset = TextClassificationDataset(task, "valid", args, tokenizer)
-        valid_dataloader = DataLoader(valid_dataset, batch_size=args.batch_size * 6,
-                                      num_workers=args.num_workers, collate_fn=dynamic_collate_fn)
-
-    test_dataset = TextClassificationDataset(task, "test", args, tokenizer)
+def test_task(args, model, memory, test_dataset):
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 6,
-                                 num_workers=args.num_workers, collate_fn=dynamic_collate_fn)
+                                  num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
+    cur_loss, cur_acc, cur_n_inputs = 0, 0, 0
+    for step, batch in enumerate(test_dataloader):
+        model.eval()
+        with torch.no_grad():
+            n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
+            outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
+            loss, logits = outputs[:2]
+            cur_n_inputs += n_inputs
+            cur_loss += loss.item() * n_inputs
+            preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
+            cur_acc += np.sum(preds == labels.detach().cpu().numpy())
+    logger.info("test loss: {:.3f}, test acc: {}".format(
+        cur_loss / cur_n_inputs, cur_acc / cur_n_inputs))
 
-    config = config_class.from_pretrained(args.model_name, num_labels=train_dataset.num_labels, finetuning_task=task)
 
-    if not model:
-        model = model_class.from_pretrained(args.model_name, config=config)
-        model.to(args.device)
+def train_task(args, model, memory, train_dataset, valid_dataset):
 
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=not args.reproduce,
+                                  num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
+    if valid_dataset:
+        valid_dataloader = DataLoader(valid_dataset, batch_size=args.batch_size * 6,
+                                      num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
     no_decay = ['bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
     ]
-    total_train_step = len(train_dataloader) * args.num_epochs
+    tot_train_step = len(train_dataloader)
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=total_train_step)
-
-    logger.info("Start training...")
+    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=tot_train_step)
 
     updates_per_epoch = len(train_dataset)
     global_step = 0
     model.zero_grad()
 
-    for epoch in range(args.num_epochs):
-        total_epoch_loss, total_num_inputs = 0, 0
-        for step, batch in enumerate(train_dataloader):
-            model.train()
-            num_inputs, input_ids, masks, labels = prepare_inputs(batch)
-            inputs = {'input_ids': input_ids, 'attention_mask': masks, 'labels': labels}
-            outputs = model(**inputs)
-            loss = outputs[0]
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+    tot_epoch_loss, tot_n_inputs = 0, 0
+    for step, batch in enumerate(train_dataloader):
+        model.train()
+        n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
+        memory.add(input_ids, masks, labels)
+        outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
+        loss = outputs[0]
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
-            total_num_inputs += num_inputs
-            total_epoch_loss += loss.item() * num_inputs
-            scheduler.step()
-            optimizer.step()
-            model.zero_grad()
-            global_step += 1
+        tot_n_inputs += n_inputs
+        tot_epoch_loss += loss.item() * n_inputs
+        scheduler.step()
+        optimizer.step()
+        model.zero_grad()
+        global_step += 1
 
-            if global_step % args.logging_steps == 0:
-                logger.info("progress: {:.2f}, global step: {}, lr: {:.2E}, avg loss: {:.3f}".format(
-                    epoch + (total_num_inputs + 1) / updates_per_epoch, global_step,
-                    scheduler.get_lr()[0], total_epoch_loss / total_num_inputs))
+        if global_step % args.logging_steps == 0:
+            logger.info("progress: {:.2f}, global step: {}, lr: {:.2E}, avg loss: {:.3f}".format(
+                (tot_n_inputs + 1) / updates_per_epoch, global_step,
+                scheduler.get_lr()[0], tot_epoch_loss / tot_n_inputs))
 
-        def run_evaluation(mode, dataloader):
-            cur_loss, cur_acc, cur_num_inputs = 0, 0, 0
-            for step, batch in enumerate(dataloader):
-                model.eval()
-                with torch.no_grad():
-                    num_inputs, input_ids, masks, labels = prepare_inputs(batch)
-                    inputs = {'input_ids': input_ids, 'attention_mask': masks, 'labels': labels}
-                    outputs = model(**inputs)
-                    loss, logits = outputs[:2]
-                    cur_num_inputs += num_inputs
-                    cur_loss += loss.item() * num_inputs
-                    preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
-                    cur_acc += np.sum(preds == labels.detach().cpu().numpy())
-            logger.info("epoch: {}, {} loss: {:.3f}, {} acc: {}".format(
-                epoch + 1, mode, cur_loss / cur_num_inputs, mode, cur_acc / cur_num_inputs))
-
-        if args.valid_ratio > 0:
-            run_evaluation("valid", valid_dataloader)
-        run_evaluation("test", test_dataloader)
+            if args.debug:
+                break
 
 
-if __name__ == "__main__":
+
+def main():
     args = parse_args()
 
     logging_format = '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
@@ -113,8 +92,28 @@ if __name__ == "__main__":
 
     logger.info("args: " + str(args))
 
-    model = None
+    config_class, model_class, tokenizer_class = model_classes[args.model_type]
+    tokenizer = tokenizer_class.from_pretrained(args.model_name)
+
+    config = config_class.from_pretrained(args.model_name, num_labels=args.n_labels)
+    model = model_class.from_pretrained(args.model_name, config=config)
+    model.to(args.device)
+    memory = Memory(args)
 
     for task in args.tasks:
-        run_task(task, args, model)
+        train_dataset = TextClassificationDataset([task], "train", args, tokenizer)
 
+        if args.valid_ratio > 0:
+            valid_dataset = TextClassificationDataset([task], "valid", args, tokenizer)
+        else:
+            valid_dataset = None
+
+        logger.info("Start training {}...".format(task))
+        train_task(args, model, memory, train_dataset, valid_dataset)
+
+    memory.build_tree()
+    test_dataset = TextClassificationDataset(args.tasks, "test", args, tokenizer)
+    test_task(args, model, memory, test_dataset)
+
+if __name__ == "__main__":
+    main()
