@@ -22,7 +22,7 @@ def dynamic_collate_fn(batch):
 class TextClassificationDataset(Dataset):
     def __init__(self, root_dir, mode, args, tokenizer):
 
-        logger.info("Parsing data...")
+        logger.info("Parsing {} data...".format(mode))
 
         self.root_dir = root_dir
         self.mode = mode
@@ -45,7 +45,8 @@ class TextClassificationDataset(Dataset):
 
         with Pool(args.num_workers) as pool:
             self.data = pool.map(self.map_csv, self.data)
-        random.shuffle(self.data)
+        if args.valid_ratio > 0:
+            random.shuffle(self.data)
 
         self.num_labels = max(label for label, _ in self.data) + 1
 

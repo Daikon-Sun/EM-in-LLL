@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser("Lifelong Language Learning")
 
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=9)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--learning_rate", type=float, default=3e-5)
     parser.add_argument("--logging_steps", type=int, default=500)
@@ -31,7 +31,7 @@ def parse_args():
     # parser.add_argument("--tasks", type=str, default="datasets/dbpedia_csv")
     # parser.add_argument("--tasks", type=str, default="datasets/ag_news_csv&datasets/dbpedia_csv")
     parser.add_argument("--tasks", type=str, default="datasets/ag_news_csv")
-    parser.add_argument("--valid_ratio", type=float, default=0.2)
+    parser.add_argument("--valid_ratio", type=float, default=0)
     parser.add_argument("--warmup_steps", type=int, default=0)
     parser.add_argument("--weight_decay", type=float, default=0)
     # parser.add_argument('--seed', type=int, default=42)

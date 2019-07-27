@@ -51,8 +51,6 @@ def run_task(task, args, model):
 
     logger.info("Start training...")
 
-    train_per_epoch = len(train_dataset)
-    valid_per_epoch = len(valid_dataset)
     global_step = 0
     model.zero_grad()
 
@@ -76,15 +74,11 @@ def run_task(task, args, model):
 
             if global_step % args.logging_steps == 0:
                 logger.info("progress: {:.2f}, global step: {}, lr: {:.2E}, avg loss: {:.3f}".format(
-                    epoch + (total_num_inputs + 1) / train_per_epoch, global_step,
+                    epoch + 1 + (total_num_inputs + 1) / total_num_inputs, global_step,
                     scheduler.get_lr()[0], total_epoch_loss / total_num_inputs))
 
-        assert total_num_inputs == train_per_epoch
-        logger.info("epoch: {}, avg epoch loss: {:.3f}".format(
-            epoch, total_epoch_loss / total_num_inputs))
-
         def run_evaluation(mode, dataloader):
-            cur_loss, cur_acc = 0, 0
+            cur_loss, cur_acc, cur_num_inputs = 0, 0, 0
             for step, batch in enumerate(dataloader):
                 model.eval()
                 with torch.no_grad():
@@ -92,11 +86,12 @@ def run_task(task, args, model):
                     inputs = {'input_ids': input_ids, 'attention_mask': masks, 'labels': labels}
                     outputs = model(**inputs)
                     loss, logits = outputs[:2]
+                    cur_num_inputs += num_inputs
                     cur_loss += loss.item() * num_inputs
                     preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
                     cur_acc += np.sum(preds == labels.detach().cpu().numpy())
             logger.info("epoch: {}, {} loss: {:.3f}, {} acc: {}".format(
-                epoch, mode, cur_loss / valid_per_epoch, mode, cur_acc / valid_per_epoch))
+                epoch + 1, mode, cur_loss / cur_num_inputs, mode, cur_acc / cur_num_inputs))
 
         if valid_ratio > 0:
             run_evaluation("valid", valid_dataloader)
