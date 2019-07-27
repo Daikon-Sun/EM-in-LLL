@@ -94,7 +94,7 @@ def run_task(task, args, model):
             logger.info("epoch: {}, {} loss: {:.3f}, {} acc: {}".format(
                 epoch + 1, mode, cur_loss / cur_num_inputs, mode, cur_acc / cur_num_inputs))
 
-        if valid_ratio > 0:
+        if args.valid_ratio > 0:
             run_evaluation("valid", valid_dataloader)
         run_evaluation("test", test_dataloader)
 

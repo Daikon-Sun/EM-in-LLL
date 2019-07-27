@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser("Lifelong Language Learning")
 
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
-    parser.add_argument("--batch_size", type=int, default=9)
+    parser.add_argument("--batch_size", type=int, default=10)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--learning_rate", type=float, default=3e-5)
     parser.add_argument("--logging_steps", type=int, default=500)
