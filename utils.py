@@ -4,9 +4,10 @@ import os
 import re
 import torch
 from settings import parse_args
+from multiprocessing import Pool
+import random
 import logging
 logger = logging.getLogger(__name__)
-from multiprocessing import Pool
 
 
 def dynamic_collate_fn(batch):
@@ -44,6 +45,7 @@ class TextClassificationDataset(Dataset):
 
         with Pool(args.num_workers) as pool:
             self.data = pool.map(self.map_csv, self.data)
+        random.shuffle(self.data)
 
         self.num_labels = max(label for label, _ in self.data) + 1
 
