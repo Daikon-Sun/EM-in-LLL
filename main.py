@@ -17,25 +17,24 @@ def prepare_inputs(batch):
     return num_inputs, input_ids, masks, labels
 
 
-def train_and_eval_task(task, args, model):
+def run_task(task, args, model):
     config_class, model_class, tokenizer_class = model_classes[args.model_type]
 
     tokenizer = tokenizer_class.from_pretrained(args.model_name)
     train_dataset = TextClassificationDataset(task, "train", args, tokenizer)
-    train_dataloader = DataLoader(train_dataset,
-                                  batch_size=args.batch_size,
-                                  shuffle=not args.reproduce,
-                                  num_workers=args.num_workers,
-                                  collate_fn=dynamic_collate_fn)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=not args.reproduce,
+                                  num_workers=args.num_workers, collate_fn=dynamic_collate_fn)
 
-    valid_dataset = TextClassificationDataset(task, "valid", args, tokenizer)
-    valid_dataloader = DataLoader(valid_dataset,
-                                  batch_size=args.batch_size * 4,
-                                  num_workers=args.num_workers,
-                                  collate_fn=dynamic_collate_fn)
+    if args.valid_ratio > 0:
+        valid_dataset = TextClassificationDataset(task, "valid", args, tokenizer)
+        valid_dataloader = DataLoader(valid_dataset, batch_size=args.batch_size * 6,
+                                      num_workers=args.num_workers, collate_fn=dynamic_collate_fn)
+
+    test_dataset = TextClassificationDataset(task, "test", args, tokenizer)
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 6,
+                                 num_workers=args.num_workers, collate_fn=dynamic_collate_fn)
 
     config = config_class.from_pretrained(args.model_name, num_labels=train_dataset.num_labels, finetuning_task=task)
-
 
     if not model:
         model = model_class.from_pretrained(args.model_name, config=config)
@@ -48,8 +47,7 @@ def train_and_eval_task(task, args, model):
     ]
     total_train_step = len(train_dataloader) * args.num_epochs
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps,
-                                     t_total=total_train_step)
+    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=total_train_step)
 
     logger.info("Start training...")
 
@@ -85,25 +83,24 @@ def train_and_eval_task(task, args, model):
         logger.info("epoch: {}, avg epoch loss: {:.3f}".format(
             epoch, total_epoch_loss / total_num_inputs))
 
-        eval_loss, eval_acc = 0, 0
-        for step, batch in enumerate(valid_dataloader):
-            model.eval()
-            with torch.no_grad():
-                num_inputs, input_ids, masks, labels = prepare_inputs(batch)
-                inputs = {'input_ids': input_ids, 'attention_mask': masks, 'labels': labels}
-                outputs = model(**inputs)
-                loss, logits = outputs[:2]
-                eval_loss += loss.item() * num_inputs
-                preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
-                eval_acc += np.sum(preds == labels.detach().cpu().numpy())
-        logger.info("epoch: {}, eval loss: {:.3f}, eval acc: {}".format(
-            epoch, eval_loss / valid_per_epoch, eval_acc / valid_per_epoch))
+        def run_evaluation(mode, dataloader):
+            cur_loss, cur_acc = 0, 0
+            for step, batch in enumerate(dataloader):
+                model.eval()
+                with torch.no_grad():
+                    num_inputs, input_ids, masks, labels = prepare_inputs(batch)
+                    inputs = {'input_ids': input_ids, 'attention_mask': masks, 'labels': labels}
+                    outputs = model(**inputs)
+                    loss, logits = outputs[:2]
+                    cur_loss += loss.item() * num_inputs
+                    preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
+                    cur_acc += np.sum(preds == labels.detach().cpu().numpy())
+            logger.info("epoch: {}, {} loss: {:.3f}, {} acc: {}".format(
+                epoch, mode, cur_loss / valid_per_epoch, mode, cur_acc / valid_per_epoch))
 
-
-def run_task(task, args, model):
-
-    if args.num_epochs > 0:
-        train_and_eval_task(task, args, model)
+        if valid_ratio > 0:
+            run_evaluation("valid", valid_dataloader)
+        run_evaluation("test", test_dataloader)
 
 
 if __name__ == "__main__":
