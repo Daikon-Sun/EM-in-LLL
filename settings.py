@@ -39,7 +39,7 @@ def parse_args():
     args = parser.parse_args()
 
     if os.path.exists(args.output_dir):
-        choice = input("Output directory ({}) exists. Remove? ".format(args.output_dir))
+        choice = input("Output directory ({}) exists! Remove? ".format(args.output_dir))
         if choice.lower()[0] == 'y':
             shutil.rmtree(args.output_dir)
             os.makedirs(args.output_dir)

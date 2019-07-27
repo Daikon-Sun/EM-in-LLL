@@ -51,6 +51,7 @@ def run_task(task, args, model):
 
     logger.info("Start training...")
 
+    updates_per_epoch = len(train_dataset)
     global_step = 0
     model.zero_grad()
 
@@ -74,7 +75,7 @@ def run_task(task, args, model):
 
             if global_step % args.logging_steps == 0:
                 logger.info("progress: {:.2f}, global step: {}, lr: {:.2E}, avg loss: {:.3f}".format(
-                    epoch + 1 + (total_num_inputs + 1) / total_num_inputs, global_step,
+                    epoch + (total_num_inputs + 1) / updates_per_epoch, global_step,
                     scheduler.get_lr()[0], total_epoch_loss / total_num_inputs))
 
         def run_evaluation(mode, dataloader):

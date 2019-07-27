@@ -45,8 +45,7 @@ class TextClassificationDataset(Dataset):
 
         with Pool(args.num_workers) as pool:
             self.data = pool.map(self.map_csv, self.data)
-        if args.valid_ratio > 0:
-            random.shuffle(self.data)
+        random.shuffle(self.data)
 
         self.num_labels = max(label for label, _ in self.data) + 1
 
