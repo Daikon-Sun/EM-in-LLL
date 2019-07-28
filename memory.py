@@ -42,6 +42,9 @@ class Memory:
 
 
     def sample(self, n_samples):
+        if self.built_tree:
+            logging.warning("Tree already build! Ignore sample.")
+            return
         inds = np.random.randint(len(self.labels), size=n_samples)
         input_ids = [self.input_ids[ind] for ind in inds]
         masks = [self.masks[ind] for ind in inds]

@@ -96,7 +96,7 @@ def main():
     root_logger = logging.getLogger()
     root_logger.addHandler(console_handler)
     for handler in root_logger.handlers:
-        handler.addFilter(TimeFilter()) 
+        handler.addFilter(TimeFilter())
 
     logger.info("args: " + str(args))
 
@@ -109,10 +109,10 @@ def main():
     memory = Memory(args)
 
     for task in args.tasks:
-        train_dataset = TextClassificationDataset([task], "train", args, tokenizer)
+        train_dataset = TextClassificationDataset(task, "train", args, tokenizer)
 
         if args.valid_ratio > 0:
-            valid_dataset = TextClassificationDataset([task], "valid", args, tokenizer)
+            valid_dataset = TextClassificationDataset(task, "valid", args, tokenizer)
         else:
             valid_dataset = None
 
@@ -120,8 +120,10 @@ def main():
         train_task(args, model, memory, train_dataset, valid_dataset)
 
     memory.build_tree()
-    test_dataset = TextClassificationDataset(args.tasks, "test", args, tokenizer)
-    test_task(args, model, memory, test_dataset)
+
+    for task in args.tasks:
+        test_dataset = TextClassificationDataset(task, "test", args, tokenizer)
+        test_task(args, model, memory, test_dataset)
 
 if __name__ == "__main__":
     main()
