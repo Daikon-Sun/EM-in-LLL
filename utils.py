@@ -53,8 +53,7 @@ class TextClassificationDataset(Dataset):
                 if args.debug and len(self.data) >= 1000:
                     break
 
-        if self.mode in ["train", "valid"]:
-            random.shuffle(self.data)
+        random.shuffle(self.data)
 
         if mode == "test":
             self.data = self.data[:self.n_test]
@@ -83,7 +82,8 @@ class TimeFilter(logging.Filter):
         except AttributeError:
           last = record.relativeCreated
 
-        delta = datetime.datetime.fromtimestamp(record.relativeCreated/1000.0) - datetime.datetime.fromtimestamp(last/1000.0)
-        record.relative = "{:.3f}".format(delta.seconds + delta.microseconds/1000000.0)
+        delta = record.relativeCreated/1000 - last/1000
+        record.relative = "{:.3f}".format(delta)
+        record.uptime = str(datetime.timedelta(seconds=record.relativeCreated//1000))
         self.last = record.relativeCreated
         return True

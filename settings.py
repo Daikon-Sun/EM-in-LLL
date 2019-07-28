@@ -21,8 +21,8 @@ label_offsets = {
 def parse_args():
     parser = argparse.ArgumentParser("Lifelong Language Learning")
 
-    parser.add_argument("--adapt_steps", type=int, default=30)
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
+    parser.add_argument("--adapt_steps", type=int, default=0)
     parser.add_argument("--batch_size", type=int, default=6)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--learning_rate", type=float, default=2e-5)
@@ -30,19 +30,19 @@ def parse_args():
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     parser.add_argument("--model_name", type=str, default="bert-base-uncased")
     parser.add_argument("--model_type", type=str, default="bert", help="Model type selected in the list: " + ", ".join(model_classes.keys()))
+    parser.add_argument("--n_labels", type=int, default=33)
     parser.add_argument("--n_neighbors", type=int, default=32)
     parser.add_argument("--n_test", type=int, default=7600)
     parser.add_argument("--n_train", type=int, default=115000)
-    parser.add_argument("--n_labels", type=int, default=33)
     parser.add_argument("--n_workers", type=int, default=cpu_count())
-    parser.add_argument("--replay_interval", type=int, default=100)
     parser.add_argument("--output_dir", type=str, default="output0")
+    parser.add_argument("--replay_interval", type=int, default=100)
     parser.add_argument("--reproduce", action="store_true")
+    parser.add_argument('--seed', type=int, default=42)
     parser.add_argument("--tasks", type=str, default="datasets/yelp_review_full_csv&datasets/ag_news_csv")
     parser.add_argument("--valid_ratio", type=float, default=0)
     parser.add_argument("--warmup_steps", type=int, default=0)
     parser.add_argument("--weight_decay", type=float, default=0)
-    # parser.add_argument('--seed', type=int, default=42)
 
     args = parser.parse_args()
 

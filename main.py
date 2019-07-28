@@ -13,23 +13,27 @@ from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs,
 from memory import Memory
 
 
-def test_task(args, model, memory, test_dataset):
+def test_task(args, model, model_class, memory, test_dataset):
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 6,
-                                  num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
+                                 num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
     cur_loss, cur_acc, cur_n_inputs = 0, 0, 0
     for step, batch in enumerate(test_dataloader):
         model.eval()
         with torch.no_grad():
             n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
             outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
-            # q_input_ids, q_masks, q_labels = memory.query(input_ids, masks)
-            loss, logits = outputs[:2]
-            cur_n_inputs += n_inputs
-            cur_loss += loss.item() * n_inputs
-            preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
-            cur_acc += np.sum(preds == labels.detach().cpu().numpy())
-    logger.info("test loss: {:.3f}, test acc: {}".format(
+            if args.adapt_steps >= 1:
+                q_input_ids, q_masks, q_labels = memory.query(input_ids, masks)
+            else:
+                loss, logits = outputs[:2]
+                cur_n_inputs += n_inputs
+                cur_loss += loss.item() * n_inputs
+                preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
+                cur_acc += np.sum(preds == labels.detach().cpu().numpy())
+    assert cur_n_inputs == len(test_dataset)
+    logger.info("test loss: {:.3f} , test acc: {:.2f}".format(
         cur_loss / cur_n_inputs, cur_acc / cur_n_inputs))
+    return cur_acc / cur_n_inputs
 
 
 def train_task(args, model, memory, train_dataset, valid_dataset):
@@ -71,7 +75,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
         tot_epoch_loss += loss.item() * n_inputs
 
         if global_step % args.logging_steps == 0:
-            logger.info("progress: {:.2f}, global step: {}, lr: {:.2E}, avg loss: {:.3f}".format(
+            logger.info("progress: {:.2f} , global step: {} , lr: {:.2E} , avg loss: {:.3f}".format(
                 (tot_n_inputs + 1) / updates_per_epoch, global_step,
                 scheduler.get_lr()[0], tot_epoch_loss / tot_n_inputs))
 
@@ -83,11 +87,13 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
             loss = model(input_ids=input_ids, attention_mask=masks, labels=labels)[0]
             update_parameters(loss)
 
+    assert tot_n_inputs == len(train_dataset)
+
 
 def main():
     args = parse_args()
 
-    logging_format = "%(asctime)s - %(relative)ss - %(levelname)s - %(name)s - %(message)s"
+    logging_format = "%(asctime)s - %(uptime)s - %(relative)ss - %(levelname)s - %(name)s - %(message)s"
     logging.basicConfig(format=logging_format,
                         filename=os.path.join(args.output_dir, 'log.txt'),
                         filemode='w', level=logging.INFO)
@@ -104,6 +110,8 @@ def main():
     tokenizer = tokenizer_class.from_pretrained(args.model_name)
 
     config = config_class.from_pretrained(args.model_name, num_labels=args.n_labels)
+    config_save_path = os.path.join(args.output_dir, 'config')
+    config.to_json_file(config_save_path)
     model = model_class.from_pretrained(args.model_name, config=config)
     model.to(args.device)
     memory = Memory(args)
@@ -118,12 +126,18 @@ def main():
 
         logger.info("Start training {}...".format(task))
         train_task(args, model, memory, train_dataset, valid_dataset)
+        model_save_path = os.path.join(args.output_dir, 'model-' + task.split('/')[-1])
+        torch.save(model.state_dict(), model_save_path)
 
     memory.build_tree()
 
+    avg_acc = 0
     for task in args.tasks:
         test_dataset = TextClassificationDataset(task, "test", args, tokenizer)
-        test_task(args, model, memory, test_dataset)
+        task_acc = test_task(args, model, model_class, memory, test_dataset)
+        avg_acc += task_acc / len(args.tasks)
+    logger.info("Average acc: {:.2f}".format(avg_acc))
+
 
 if __name__ == "__main__":
     main()
