@@ -6,6 +6,7 @@ from multiprocessing import Pool
 import random
 import logging
 logger = logging.getLogger(__name__)
+import datetime
 
 
 from settings import parse_args, label_offsets
@@ -78,3 +79,15 @@ class TextClassificationDataset(Dataset):
         row, label_offset = row_and_label_offset
         context = '[CLS]' + ' '.join(row[1:])[:self.max_len-2] + '[SEP]'
         return (int(row[0]) + label_offset, self.tokenizer.encode(context))
+
+class TimeFilter(logging.Filter):
+    def filter(self, record):
+        try:
+          last = self.last
+        except AttributeError:
+          last = record.relativeCreated
+
+        delta = datetime.datetime.fromtimestamp(record.relativeCreated/1000.0) - datetime.datetime.fromtimestamp(last/1000.0)
+        record.relative = "{:.3f}".format(delta.seconds + delta.microseconds/1000000.0)
+        self.last = record.relativeCreated
+        return True

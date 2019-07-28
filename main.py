@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 from settings import parse_args, model_classes
-from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs
+from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, TimeFilter
 from memory import Memory
 
 
@@ -87,14 +87,16 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 def main():
     args = parse_args()
 
-    logging_format = '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+    logging_format = "%(asctime)s - %(relative)ss - %(levelname)s - %(name)s - %(message)s"
     logging.basicConfig(format=logging_format,
-                        datefmt='%m/%d/%Y %H:%M:%S',
                         filename=os.path.join(args.output_dir, 'log.txt'),
                         filemode='w', level=logging.INFO)
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(logging.Formatter(logging_format))
-    logging.getLogger("").addHandler(console_handler)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(console_handler)
+    for handler in root_logger.handlers:
+        handler.addFilter(TimeFilter()) 
 
     logger.info("args: " + str(args))
 
