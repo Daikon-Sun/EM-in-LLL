@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument("--n_labels", type=int, default=33)
     parser.add_argument("--n_workers", type=int, default=cpu_count())
     parser.add_argument("--replay_interval", type=int, default=100)
-    parser.add_argument("--output_dir", type=str, default="outputs")
+    parser.add_argument("--output_dir", type=str, default="output0")
     parser.add_argument("--reproduce", action="store_true")
     parser.add_argument("--tasks", type=str, default="datasets/yelp_review_full_csv&datasets/ag_news_csv")
     parser.add_argument("--valid_ratio", type=float, default=0)

@@ -22,7 +22,7 @@ def test_task(args, model, memory, test_dataset):
         with torch.no_grad():
             n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
             outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
-            q_input_ids, q_masks, q_labels = memory.query(input_ids, masks)
+            # q_input_ids, q_masks, q_labels = memory.query(input_ids, masks)
             loss, logits = outputs[:2]
             cur_n_inputs += n_inputs
             cur_loss += loss.item() * n_inputs
