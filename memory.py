@@ -22,33 +22,35 @@ class Memory:
         self.max_len = self.model.config.max_position_embeddings
         self.model.eval()
         self.model.to(args.device)
-        self.keys = np.empty((0, self.hidden_size), dtype=np.int32)
-        self.input_ids = np.empty((0, self.max_len), dtype=np.int32)
-        self.masks = np.empty((0, self.max_len), dtype=np.int32)
-        self.labels = np.array([], dtype=np.int32)
+        self.keys, self.input_ids, self.masks, self.labels = [], [], [], []
         self.tree = NearestNeighbors(n_jobs=args.n_workers)
         self.built_tree = False
 
 
-    def pad_to_max_len(self, arr):
-        return np.pad(arr, [(0, 0), (0, self.max_len - arr.shape[1])], 'constant')
+    # def pad_to_max_len(self, arr):
+    #     return np.pad(arr, [(0, 0), (0, self.max_len - arr.shape[1])], 'constant')
 
     def add(self, input_ids, masks, labels):
         if self.built_tree:
             logging.warning("Tree already build! Ignore add.")
             return
         outputs = self.model(input_ids=input_ids, attention_mask=masks)
-        self.keys = np.append(self.keys, outputs[0][:, 0, :].detach().cpu().numpy(), axis=0)
-        self.input_ids = np.append(self.input_ids, self.pad_to_max_len(input_ids.cpu().numpy()), axis=0)
-        self.masks = np.append(self.masks, self.pad_to_max_len(masks.cpu().numpy()), axis=0)
-        self.labels = np.append(self.labels, labels.cpu().numpy(), axis=0)
+        self.keys.extend(outputs[0][:, 0, :].detach().cpu().tolist())
+        self.input_ids.extend(input_ids.cpu().tolist())
+        self.masks.extend(masks.cpu().tolist())
+        self.labels.extend(labels.cpu().tolist())
 
 
     def sample(self, n_samples):
         inds = np.random.randint(len(self.labels), size=n_samples)
-        input_ids = torch.tensor(self.input_ids[inds], dtype=torch.long)
-        masks = torch.tensor(self.masks[inds], dtype=torch.long)
-        labels = torch.tensor(self.labels[inds], dtype=torch.long)
+        input_ids = [self.input_ids[ind] for ind in inds]
+        masks = [self.masks[ind] for ind in inds]
+        labels = [self.labels[ind] for ind in inds]
+        input_lens = [len(mask) for mask in masks]
+        max_len = max(input_lens)
+        input_ids = torch.tensor([input_id + [0]*(max_len - l) for input_id, l in zip(input_ids, input_lens)], dtype=torch.long)
+        masks = torch.tensor([mask + [0]*(max_len - l) for mask, l in zip(masks, input_lens)], dtype=torch.long)
+        labels = torch.tensor(labels, dtype=torch.long)
         return input_ids.to(self.device), masks.to(self.device), labels.to(self.device)
 
 
