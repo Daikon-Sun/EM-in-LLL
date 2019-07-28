@@ -25,6 +25,8 @@ def parse_args():
     parser.add_argument("--adapt_steps", type=int, default=0)
     parser.add_argument("--batch_size", type=int, default=6)
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--local_adapt_lr", type=float, default=1e-3)
+    parser.add_argument("--local_lambda", type=float, default=1e-3)
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--logging_steps", type=int, default=500)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)

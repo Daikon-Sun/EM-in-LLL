@@ -17,11 +17,12 @@ class Memory:
     def __init__(self, args):
         self.n_neighbors = args.n_neighbors
         self.device = args.device
-        self.model = BertModel.from_pretrained(args.model_name)
+        with torch.no_grad():
+            self.model = BertModel.from_pretrained(args.model_name)
+            self.model.eval()
+            self.model.to(self.device)
         self.hidden_size = self.model.config.hidden_size
         self.max_len = self.model.config.max_position_embeddings
-        self.model.eval()
-        self.model.to(args.device)
         self.keys, self.input_ids, self.masks, self.labels = [], [], [], []
         self.tree = NearestNeighbors(n_jobs=args.n_workers)
         self.built_tree = False

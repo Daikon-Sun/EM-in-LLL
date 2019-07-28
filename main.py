@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 import numpy as np
 import logging
+from multiprocessing import Pool
 logger = logging.getLogger(__name__)
 
 
@@ -13,20 +14,74 @@ from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs,
 from memory import Memory
 
 
-def test_task(args, model, model_class, memory, test_dataset):
-    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 6,
+def local_adapt(all_inputs):
+    input_ids, masks, labels, q_input_ids, q_masks, q_labels, args = all_inputs
+    q_input_lens = [len(mask) for mask in q_masks]
+    q_max_len = max(q_input_lens)
+    q_input_ids = torch.tensor([input_id + [0]*(q_max_len - l) for input_id, l in zip(q_input_ids, q_input_lens)], dtype=torch.long)
+    q_masks = torch.tensor([mask + [0]*(q_max_len - l) for mask, l in zip(q_masks, q_input_lens)], dtype=torch.long)
+    q_labels = torch.tensor(q_labels, dtype=torch.long)
+
+    with torch.no_grad():
+        model_config = args.config_class.from_pretrained(args.model_name, num_labels=args.n_labels, hidden_dropout_prob=0, attention_probs_dropout_prob=0)
+        model = args.model_class.from_pretrained(os.path.join(args.output_dir, 'checkpoint'), config=model_config)
+        model.to(args.device)
+    tmp_model = args.model_class.from_pretrained(args.model_name, config=model_config)
+    tmp_model.to(args.device)
+
+    no_decay = ['bias', 'LayerNorm.weight']
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in tmp_model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
+        {'params': [p for n, p in tmp_model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    ]
+    optimizer = AdamW(optimizer_grouped_parameters, lr=args.local_adapt_lr, eps=args.adam_epsilon)
+    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=args.adapt_steps)
+
+    tmp_model.zero_grad()
+    for step in range(args.adapt_steps):
+        tmp_model.train()
+        q_input_ids = q_input_ids.to(args.device).detach()
+        q_masks = q_masks.to(args.device).detach()
+        q_labels = q_labels.to(args.device).detach()
+        loss = tmp_model(input_ids=q_input_ids, attention_mask=q_masks, labels=q_labels)[0]
+        model_params = torch.cat([param.data.view(-1) for param in model.parameters()], 0)
+        tmp_model_params = torch.cat([param.data.view(-1) for param in tmp_model.parameters()], 0)
+        loss += args.local_lambda * torch.norm(model_params - tmp_model_params)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(tmp_model.parameters(), args.max_grad_norm)
+        scheduler.step()
+        optimizer.step()
+        tmp_model.zero_grad()
+    tmp_model.eval()
+    return tmp_model(input_ids=input_ids, attention_mask=masks, labels=labels)
+
+
+def test_task(args, model, memory, test_dataset):
+    test_dataloader = DataLoader(test_dataset, batch_size=2,
                                  num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
+
+    if args.adapt_steps >= 1:
+        del model
+
     cur_loss, cur_acc, cur_n_inputs = 0, 0, 0
     for step, batch in enumerate(test_dataloader):
-        model.eval()
-        with torch.no_grad():
-            n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
-            outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
-            if args.adapt_steps >= 1:
+        n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
+        cur_n_inputs += n_inputs
+        if args.adapt_steps >= 1:
+            with torch.no_grad():
                 q_input_ids, q_masks, q_labels = memory.query(input_ids, masks)
-            else:
+            argss = [args for _ in range(n_inputs)]
+            input_idss = [input_ids.cpu().tolist() for _ in range(n_inputs)]
+            maskss = [masks.cpu().tolist() for _ in range(n_inputs)]
+            # with Pool(2) as pool:
+            #     pool.map(local_adapt, list(zip(input_idss, maskss, labels, q_input_ids, q_masks, q_labels, argss)))
+            outputs = local_adapt(list(zip(input_idss, maskss, labels, q_input_ids, q_masks, q_labels, argss))[0])
+            print(outputs)
+        else:
+            with torch.no_grad():
+                model.eval()
+                outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
                 loss, logits = outputs[:2]
-                cur_n_inputs += n_inputs
                 cur_loss += loss.item() * n_inputs
                 preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
                 cur_acc += np.sum(preds == labels.detach().cpu().numpy())
@@ -106,13 +161,13 @@ def main():
 
     logger.info("args: " + str(args))
 
-    config_class, model_class, tokenizer_class = model_classes[args.model_type]
-    tokenizer = tokenizer_class.from_pretrained(args.model_name)
+    args.config_class, args.model_class, args.tokenizer_class = model_classes[args.model_type]
+    tokenizer = args.tokenizer_class.from_pretrained(args.model_name)
 
-    config = config_class.from_pretrained(args.model_name, num_labels=args.n_labels)
+    model_config = args.config_class.from_pretrained(args.model_name, num_labels=args.n_labels)
     config_save_path = os.path.join(args.output_dir, 'config')
-    config.to_json_file(config_save_path)
-    model = model_class.from_pretrained(args.model_name, config=config)
+    model_config.to_json_file(config_save_path)
+    model = args.model_class.from_pretrained(args.model_name, config=model_config)
     model.to(args.device)
     memory = Memory(args)
 
@@ -126,7 +181,8 @@ def main():
 
         logger.info("Start training {}...".format(task))
         train_task(args, model, memory, train_dataset, valid_dataset)
-        model_save_path = os.path.join(args.output_dir, 'model-' + task.split('/')[-1])
+        # model_save_path = os.path.join(args.output_dir, 'model-' + task.split('/')[-1])
+        model_save_path = os.path.join(args.output_dir, 'checkpoint')
         torch.save(model.state_dict(), model_save_path)
 
     memory.build_tree()
@@ -134,7 +190,7 @@ def main():
     avg_acc = 0
     for task in args.tasks:
         test_dataset = TextClassificationDataset(task, "test", args, tokenizer)
-        task_acc = test_task(args, model, model_class, memory, test_dataset)
+        task_acc = test_task(args, model, memory, test_dataset)
         avg_acc += task_acc / len(args.tasks)
     logger.info("Average acc: {:.2f}".format(avg_acc))
 
