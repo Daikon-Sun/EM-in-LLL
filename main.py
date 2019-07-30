@@ -205,7 +205,8 @@ def main():
         torch.save(model.state_dict(), model_save_path)
         torch.cuda.empty_cache()
 
-    memory.build_tree()
+    if args.adapt_steps >= 1:
+        memory.build_tree()
 
     avg_acc = 0
     for task in args.tasks:
