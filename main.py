@@ -58,8 +58,20 @@ def test_task(args, model, memory, test_dataset):
             org_params = org_params.half()
         del org_model
     
+    def update_metrics(loss, logits, cur_loss, cur_acc):
+        preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
+        return cur_loss + loss, cur_acc + np.sum(preds == labels.detach().cpu().numpy())
+
     cur_loss, cur_acc = 0, 0
     if args.adapt_steps >= 1:
+        with torch.no_grad():
+            model_config = args.config_class.from_pretrained(args.model_name, num_labels=args.n_labels, hidden_dropout_prob=0, attention_probs_dropout_prob=0)
+            save_model_path = os.path.join(args.output_dir, 'checkpoint')
+            org_model = args.model_class.from_pretrained(save_model_path, config=model_config)
+            org_model.to(args.device)
+            org_params = torch.cat([param.data.view(-1) for param in org_model.parameters()], 0).half()
+            del org_model
+    
         q_input_ids, q_masks, q_labels = [], [], []
         for step, batch in enumerate(test_dataloader):
             n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
@@ -74,23 +86,24 @@ def test_task(args, model, memory, test_dataset):
             labels = torch.tensor(np.expand_dims(labels, 0), dtype=torch.long).to(args.device)
             input_ids = torch.tensor(np.expand_dims(input_ids, 0), dtype=torch.long).to(args.device)
             loss, logits = local_adapt(input_ids, labels, q_input_ids[i], q_masks[i], q_labels[i], copy.deepcopy(model), args, org_params)
-            cur_loss += loss.item()
-            preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
-            cur_acc += np.sum(preds == labels.detach().cpu().numpy())
+            cur_loss, cur_acc = update_metrics(loss.item(), logits, cur_loss, cur_acc)
             if (i+1) % args.logging_steps == 0:
-                logging.info("Local adapted {}/{} examples , test loss: {:.3f} , test acc: {:.3f}".format(
-                    i+1, len(test_dataset), cur_loss / (i+1), cur_acc / (i+1)))
+                logging.info("Local adapted {}/{} examples, test loss: {} , test acc: {}".format(
+                    i+1, len(test_dataset), cur_loss/(i+1), cur_acc/(i+1)))
     else:
+        tot_n_inputs = 0
         for step, batch in enumerate(test_dataloader):
             n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
+            tot_n_inputs += n_inputs
             with torch.no_grad():
                 model.eval()
                 outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
                 loss, logits = outputs[:2]
+            cur_loss, cur_acc = update_metrics(loss.item()*n_inputs, logits, cur_loss, cur_acc)
+            if (step+1) % args.logging_steps == 0:
+                logging.info("Tested {}/{} examples , test loss: {} , test acc: {}".format(
+                    tot_n_inputs, len(test_dataset), cur_loss/tot_n_inputs, cur_acc/tot_n_inputs))
 
-            cur_loss += loss.item() * n_inputs
-            preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
-            cur_acc += np.sum(preds == labels.detach().cpu().numpy())
 
     logger.info("test loss: {:.3f} , test acc: {:.3f}".format(
         cur_loss / len(test_dataset), cur_acc / len(test_dataset)))
@@ -140,7 +153,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
                 tot_n_inputs / updates_per_epoch, global_step,
                 scheduler.get_lr()[0], tot_epoch_loss / tot_n_inputs))
 
-        if args.replay_interval >= 1 and (step + 1) % args.replay_interval == 0:
+        if args.replay_interval >= 1 and (step+1) % args.replay_interval == 0:
             input_ids, masks, labels = memory.sample(args.batch_size)
             loss = model(input_ids=input_ids, attention_mask=masks, labels=labels)[0]
             update_parameters(loss)
