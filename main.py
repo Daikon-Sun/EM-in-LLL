@@ -21,14 +21,17 @@ def local_adapt(input_ids, labels, q_input_ids, q_masks, q_labels, tmp_model, ar
     q_labels = q_labels.to(args.device).detach()
 
     optimizer = optim.SGD(tmp_model.parameters(), lr=args.local_adapt_lr, momentum=0.9)
+    # optimizer = AdamW(tmp_model.parameters(), lr=args.learning_rate, eps=1e-4)
+    # optimizer = optim.Adam(tmp_model.parameters(), lr=args.local_adapt_lr)
     if args.fp16_test:
         tmp_model, optimizer = amp.initialize(tmp_model, optimizer, opt_level="O3", verbosity=0)
 
     tmp_model.zero_grad()
     for step in range(args.adapt_steps):
         tmp_model.train()
-        loss = tmp_model(input_ids=q_input_ids, attention_mask=q_masks, labels=q_labels)[0] \
-            + args.local_lambda * torch.sum((org_params - torch.cat([param.data.view(-1) for param in tmp_model.parameters()], 0))**2)
+        params = torch.cat([torch.reshape(param, [-1]) for param in tmp_model.parameters()], 0)
+        loss = tmp_model(input_ids=q_input_ids, attention_mask=q_masks, labels=q_labels)[0] + torch.sum((org_params - params)**2).float()
+
         if args.fp16_test:
             with amp.scale_loss(loss, optimizer) as scaled_loss:
                 scaled_loss.backward()
@@ -60,7 +63,7 @@ def test_task(args, model, memory, test_dataset):
             save_model_path = os.path.join(args.output_dir, 'checkpoint')
             org_model = args.model_class.from_pretrained(save_model_path, config=model_config)
             org_model.to(args.device)
-            org_params = torch.cat([param.data.view(-1) for param in org_model.parameters()], 0)
+            org_params = torch.cat([torch.reshape(param, [-1]) for param in org_model.parameters()], 0)
             if args.fp16_test:
                 org_params = org_params.half()
             del org_model

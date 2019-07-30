@@ -54,11 +54,6 @@ class TextClassificationDataset(Dataset):
             reader = csv.reader(f, delimiter=',', quotechar='"')
             for row in reader:
                 self.data.append(row)
-                if args.debug:
-                    if self.mode == "test" and len(self.data) >= 100:
-                        break
-                    elif self.mode in ["train", "valid"] and len(self.data) >= 2000:
-                        break
 
         random.shuffle(self.data)
 
