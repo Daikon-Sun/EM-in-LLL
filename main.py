@@ -48,16 +48,6 @@ def test_task(args, model, memory, test_dataset):
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 6,
                                  num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
 
-    with torch.no_grad():
-        model_config = args.config_class.from_pretrained(args.model_name, num_labels=args.n_labels, hidden_dropout_prob=0, attention_probs_dropout_prob=0)
-        save_model_path = os.path.join(args.output_dir, 'checkpoint')
-        org_model = args.model_class.from_pretrained(save_model_path, config=model_config)
-        org_model.to(args.device)
-        org_params = torch.cat([param.data.view(-1) for param in org_model.parameters()], 0)
-        if args.fp16_test:
-            org_params = org_params.half()
-        del org_model
-    
     def update_metrics(loss, logits, cur_loss, cur_acc):
         preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
         return cur_loss + loss, cur_acc + np.sum(preds == labels.detach().cpu().numpy())
@@ -70,6 +60,8 @@ def test_task(args, model, memory, test_dataset):
             org_model = args.model_class.from_pretrained(save_model_path, config=model_config)
             org_model.to(args.device)
             org_params = torch.cat([param.data.view(-1) for param in org_model.parameters()], 0).half()
+            if args.fp16_test:
+                org_params = org_params.half()
             del org_model
     
         q_input_ids, q_masks, q_labels = [], [], []
