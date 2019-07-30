@@ -1,94 +1,95 @@
+from apex import amp
 import os
 import torch
-from pytorch_transformers import AdamW, WarmupLinearSchedule
+torch.backends.cudnn.benchmark=True
+from pytorch_transformers import AdamW, WarmupLinearSchedule, WarmupConstantSchedule
 from torch.utils.data import DataLoader
+from torch import optim
 from tqdm import tqdm, trange
 import numpy as np
+from torch.multiprocessing import Pool, set_start_method
+import copy
 import logging
-from multiprocessing import Pool
 logger = logging.getLogger(__name__)
 
 
 from settings import parse_args, model_classes
-from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, TimeFilter
+from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, TimeFilter, pad_to_max_len
 from memory import Memory
 
 
-def local_adapt(all_inputs):
-    input_ids, masks, labels, q_input_ids, q_masks, q_labels, args = all_inputs
-    q_input_lens = [len(mask) for mask in q_masks]
-    q_max_len = max(q_input_lens)
-    q_input_ids = torch.tensor([input_id + [0]*(q_max_len - l) for input_id, l in zip(q_input_ids, q_input_lens)], dtype=torch.long)
-    q_masks = torch.tensor([mask + [0]*(q_max_len - l) for mask, l in zip(q_masks, q_input_lens)], dtype=torch.long)
-    q_labels = torch.tensor(q_labels, dtype=torch.long)
+def local_adapt(input_ids, labels, q_input_ids, q_masks, q_labels, tmp_model, args, org_params):
+    q_input_ids = q_input_ids.to(args.device).detach()
+    q_masks = q_masks.to(args.device).detach()
+    q_labels = q_labels.to(args.device).detach()
 
-    with torch.no_grad():
-        model_config = args.config_class.from_pretrained(args.model_name, num_labels=args.n_labels, hidden_dropout_prob=0, attention_probs_dropout_prob=0)
-        model = args.model_class.from_pretrained(os.path.join(args.output_dir, 'checkpoint'), config=model_config)
-        model.to(args.device)
-    tmp_model = args.model_class.from_pretrained(args.model_name, config=model_config)
-    tmp_model.to(args.device)
-
-    no_decay = ['bias', 'LayerNorm.weight']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in tmp_model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
-        {'params': [p for n, p in tmp_model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-    ]
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.local_adapt_lr, eps=args.adam_epsilon)
-    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=args.adapt_steps)
+    optimizer = optim.SGD(tmp_model.parameters(), lr=args.local_adapt_lr, momentum=0.9)
+    tmp_model, optimizer = amp.initialize(tmp_model, optimizer, opt_level="O3")
 
     tmp_model.zero_grad()
     for step in range(args.adapt_steps):
         tmp_model.train()
-        q_input_ids = q_input_ids.to(args.device).detach()
-        q_masks = q_masks.to(args.device).detach()
-        q_labels = q_labels.to(args.device).detach()
-        loss = tmp_model(input_ids=q_input_ids, attention_mask=q_masks, labels=q_labels)[0]
-        model_params = torch.cat([param.data.view(-1) for param in model.parameters()], 0)
-        tmp_model_params = torch.cat([param.data.view(-1) for param in tmp_model.parameters()], 0)
-        loss += args.local_lambda * torch.norm(model_params - tmp_model_params)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(tmp_model.parameters(), args.max_grad_norm)
-        scheduler.step()
+        loss = tmp_model(input_ids=q_input_ids, attention_mask=q_masks, labels=q_labels)[0] \
+            + args.local_lambda * torch.sum((org_params - torch.cat([param.data.view(-1) for param in tmp_model.parameters()], 0))**2)
+        with amp.scale_loss(loss, optimizer) as scaled_loss:
+            scaled_loss.backward()
         optimizer.step()
         tmp_model.zero_grad()
+
     tmp_model.eval()
-    return tmp_model(input_ids=input_ids, attention_mask=masks, labels=labels)
+    with torch.no_grad():
+        tmp_model.eval()
+        return tmp_model(input_ids=input_ids, labels=labels)[:2]
 
 
 def test_task(args, model, memory, test_dataset):
-    test_dataloader = DataLoader(test_dataset, batch_size=2,
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 6,
                                  num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
 
+    with torch.no_grad():
+        model_config = args.config_class.from_pretrained(args.model_name, num_labels=args.n_labels, hidden_dropout_prob=0, attention_probs_dropout_prob=0)
+        save_model_path = os.path.join(args.output_dir, 'checkpoint')
+        org_model = args.model_class.from_pretrained(save_model_path, config=model_config)
+        org_model.to(args.device)
+        org_params = torch.cat([param.data.view(-1) for param in org_model.parameters()], 0).half()
+        del org_model
+    
+    cur_loss, cur_acc = 0, 0
     if args.adapt_steps >= 1:
-        del model
-
-    cur_loss, cur_acc, cur_n_inputs = 0, 0, 0
-    for step, batch in enumerate(test_dataloader):
-        n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
-        cur_n_inputs += n_inputs
-        if args.adapt_steps >= 1:
+        q_input_ids, q_masks, q_labels = [], [], []
+        for step, batch in enumerate(test_dataloader):
+            n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
             with torch.no_grad():
-                q_input_ids, q_masks, q_labels = memory.query(input_ids, masks)
-            argss = [args for _ in range(n_inputs)]
-            input_idss = [input_ids.cpu().tolist() for _ in range(n_inputs)]
-            maskss = [masks.cpu().tolist() for _ in range(n_inputs)]
-            # with Pool(2) as pool:
-            #     pool.map(local_adapt, list(zip(input_idss, maskss, labels, q_input_ids, q_masks, q_labels, argss)))
-            outputs = local_adapt(list(zip(input_idss, maskss, labels, q_input_ids, q_masks, q_labels, argss))[0])
-            print(outputs)
-        else:
+                cur_q_input_ids, cur_q_masks, cur_q_labels = memory.query(input_ids, masks)
+            q_input_ids.extend(cur_q_input_ids)
+            q_masks.extend(cur_q_masks)
+            q_labels.extend(cur_q_labels)
+
+        for i in range(len(test_dataset)):
+            labels, input_ids = test_dataset[i]
+            labels = torch.tensor(np.expand_dims(labels, 0), dtype=torch.long).to(args.device)
+            input_ids = torch.tensor(np.expand_dims(input_ids, 0), dtype=torch.long).to(args.device)
+            loss, logits = local_adapt(input_ids, labels, q_input_ids[i], q_masks[i], q_labels[i], copy.deepcopy(model), args, org_params)
+            cur_loss += loss.item()
+            preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
+            cur_acc += np.sum(preds == labels.detach().cpu().numpy())
+            if (i+1) % args.logging_steps == 0:
+                logging.info("Local adapted {} examples...".format(i+1))
+    else:
+        for step, batch in enumerate(test_dataloader):
+            n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
             with torch.no_grad():
                 model.eval()
                 outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
                 loss, logits = outputs[:2]
-                cur_loss += loss.item() * n_inputs
-                preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
-                cur_acc += np.sum(preds == labels.detach().cpu().numpy())
-    assert cur_n_inputs == len(test_dataset)
-    logger.info("test loss: {:.3f} , test acc: {:.2f}".format(
-        cur_loss / cur_n_inputs, cur_acc / cur_n_inputs))
-    return cur_acc / cur_n_inputs
+
+            cur_loss += loss.item() * n_inputs
+            preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
+            cur_acc += np.sum(preds == labels.detach().cpu().numpy())
+
+    logger.info("test loss: {:.3f} , test acc: {:.3f}".format(
+        cur_loss / len(test_dataset), cur_acc / len(test_dataset)))
+    return cur_acc / len(test_dataset)
 
 
 def train_task(args, model, memory, train_dataset, valid_dataset):
@@ -142,6 +143,8 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
             loss = model(input_ids=input_ids, attention_mask=masks, labels=labels)[0]
             update_parameters(loss)
 
+        del loss, input_ids, masks, labels
+
     assert tot_n_inputs == len(train_dataset)
 
 
@@ -167,6 +170,7 @@ def main():
     model_config = args.config_class.from_pretrained(args.model_name, num_labels=args.n_labels)
     config_save_path = os.path.join(args.output_dir, 'config')
     model_config.to_json_file(config_save_path)
+    logger.info("Loading main {} model".format(args.model_name))
     model = args.model_class.from_pretrained(args.model_name, config=model_config)
     model.to(args.device)
     memory = Memory(args)
@@ -184,6 +188,7 @@ def main():
         # model_save_path = os.path.join(args.output_dir, 'model-' + task.split('/')[-1])
         model_save_path = os.path.join(args.output_dir, 'checkpoint')
         torch.save(model.state_dict(), model_save_path)
+        torch.cuda.empty_cache()
 
     memory.build_tree()
 
@@ -192,8 +197,9 @@ def main():
         test_dataset = TextClassificationDataset(task, "test", args, tokenizer)
         task_acc = test_task(args, model, memory, test_dataset)
         avg_acc += task_acc / len(args.tasks)
-    logger.info("Average acc: {:.2f}".format(avg_acc))
+    logger.info("Average acc: {:.3f}".format(avg_acc))
 
 
 if __name__ == "__main__":
+    set_start_method('spawn')
     main()

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 from settings import model_classes
-from utils import prepare_inputs
+from utils import pad_to_max_len
 
 
 class Memory:
@@ -18,6 +18,7 @@ class Memory:
         self.n_neighbors = args.n_neighbors
         self.device = args.device
         with torch.no_grad():
+            logger.info("Loading memory {} model".format(args.model_name))
             self.model = BertModel.from_pretrained(args.model_name)
             self.model.eval()
             self.model.to(self.device)
@@ -32,6 +33,8 @@ class Memory:
     #     return np.pad(arr, [(0, 0), (0, self.max_len - arr.shape[1])], 'constant')
 
     def add(self, input_ids, masks, labels):
+        if len(self.labels) > 60:
+            return
         if self.built_tree:
             logging.warning("Tree already build! Ignore add.")
             return
@@ -40,6 +43,7 @@ class Memory:
         self.input_ids.extend(input_ids.cpu().tolist())
         self.masks.extend(masks.cpu().tolist())
         self.labels.extend(labels.cpu().tolist())
+        del outputs
 
 
     def sample(self, n_samples):
@@ -50,10 +54,7 @@ class Memory:
         input_ids = [self.input_ids[ind] for ind in inds]
         masks = [self.masks[ind] for ind in inds]
         labels = [self.labels[ind] for ind in inds]
-        input_lens = [len(mask) for mask in masks]
-        max_len = max(input_lens)
-        input_ids = torch.tensor([input_id + [0]*(max_len - l) for input_id, l in zip(input_ids, input_lens)], dtype=torch.long)
-        masks = torch.tensor([mask + [0]*(max_len - l) for mask, l in zip(masks, input_lens)], dtype=torch.long)
+        input_ids, masks = pad_to_max_len(input_ids, masks)
         labels = torch.tensor(labels, dtype=torch.long)
         return input_ids.to(self.device), masks.to(self.device), labels.to(self.device)
 
@@ -77,4 +78,6 @@ class Memory:
         outputs = self.model(input_ids=input_ids, attention_mask=masks)
         queries = outputs[0][:, 0, :].cpu().numpy()
         inds = self.tree.kneighbors(queries, n_neighbors=self.n_neighbors, return_distance=False)
-        return self.input_ids[inds], self.masks[inds], self.labels[inds]
+        input_ids, masks = list(zip(*[pad_to_max_len(input_id, mask) for input_id, mask in zip(self.input_ids[inds], self.masks[inds])]))
+        labels = [torch.tensor(label, dtype=torch.long) for label in self.labels[inds]]
+        return input_ids, masks, labels

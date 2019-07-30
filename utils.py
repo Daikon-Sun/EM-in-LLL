@@ -13,17 +13,24 @@ from settings import parse_args, label_offsets
 
 
 def prepare_inputs(batch, device):
-    n_inputs = len(batch[0])
     input_ids, masks, labels = tuple(b.to(device) for b in batch)
-    return n_inputs, input_ids, masks, labels
+    return batch[0].shape[0], input_ids, masks, labels
+
+def pad_to_max_len(input_ids, masks=None):
+    max_len = max(len(input_id) for input_id in input_ids)
+    input_ids = torch.tensor([input_id+[0]*(max_len-len(input_id)) for input_id in input_ids], dtype=torch.long)
+    if masks is None:
+        masks = torch.tensor([[1]*len(input_id)+[0]*(max_len-len(input_id)) for input_id in input_ids], dtype=torch.long)
+    else:
+        masks = torch.tensor([mask+[0]*(max_len-len(mask)) for mask in masks], dtype=torch.long)
+    return input_ids, masks
 
 
 def dynamic_collate_fn(batch):
+    labels, input_ids = list(zip(*batch))
     labels = torch.tensor([b[0] for b in batch], dtype=torch.long)
-    input_lens = [len(b[1]) for b in batch]
-    max_len = max(input_lens)
-    input_ids = torch.tensor([b[1] + [0]*(max_len - l) for b, l in zip(batch, input_lens)], dtype=torch.long)
-    masks = torch.tensor([[1] * l + [0]*(max_len - l) for l in input_lens], dtype=torch.long)
+    max_len = max(len(b[1]) for b in batch)
+    input_ids, masks = pad_to_max_len(input_ids)
     return input_ids, masks, labels
 
 
@@ -50,7 +57,7 @@ class TextClassificationDataset(Dataset):
             reader = csv.reader(f, delimiter=',', quotechar='"')
             for row in reader:
                 self.data.append(row)
-                if args.debug and len(self.data) >= 1000:
+                if args.debug and len(self.data) >= 60:
                     break
 
         random.shuffle(self.data)
