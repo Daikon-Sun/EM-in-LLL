@@ -24,7 +24,7 @@ def local_adapt(input_ids, labels, q_input_ids, q_masks, q_labels, tmp_model, ar
     q_labels = q_labels.to(args.device).detach()
 
     optimizer = optim.SGD(tmp_model.parameters(), lr=args.local_adapt_lr, momentum=0.9)
-    tmp_model, optimizer = amp.initialize(tmp_model, optimizer, opt_level="O3")
+    tmp_model, optimizer = amp.initialize(tmp_model, optimizer, opt_level="O3", verbosity=0)
 
     tmp_model.zero_grad()
     for step in range(args.adapt_steps):
