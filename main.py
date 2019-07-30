@@ -60,7 +60,7 @@ def test_task(args, model, memory, test_dataset):
             save_model_path = os.path.join(args.output_dir, 'checkpoint')
             org_model = args.model_class.from_pretrained(save_model_path, config=model_config)
             org_model.to(args.device)
-            org_params = torch.cat([param.data.view(-1) for param in org_model.parameters()], 0).half()
+            org_params = torch.cat([param.data.view(-1) for param in org_model.parameters()], 0)
             if args.fp16_test:
                 org_params = org_params.half()
             del org_model
@@ -143,8 +143,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 
         if global_step % args.logging_steps == 0:
             logger.info("progress: {:.2f} , global step: {} , lr: {:.2E} , avg loss: {:.3f}".format(
-                tot_n_inputs / updates_per_epoch, global_step,
-                scheduler.get_lr()[0], tot_epoch_loss / tot_n_inputs))
+                tot_n_inputs/updates_per_epoch, global_step, scheduler.get_lr()[0], tot_epoch_loss/tot_n_inputs))
 
         if args.replay_interval >= 1 and (step+1) % args.replay_interval == 0:
             input_ids, masks, labels = memory.sample(args.batch_size)
@@ -153,6 +152,8 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 
         del loss, input_ids, masks, labels
 
+    logger.info("Finsih training, global step: {} , avg loss: {:.3f}".format(
+        global_step, tot_epoch_loss/tot_n_inputs))
     del optimizer, optimizer_grouped_parameters
     assert tot_n_inputs == len(train_dataset)
 
