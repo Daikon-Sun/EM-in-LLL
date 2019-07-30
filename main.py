@@ -206,6 +206,7 @@ def main():
     avg_acc = 0
     for task in args.tasks:
         test_dataset = TextClassificationDataset(task, "test", args, tokenizer)
+        logger.info("Start testing {}...".format(task))
         task_acc = test_task(args, model, memory, test_dataset)
         avg_acc += task_acc / len(args.tasks)
     logger.info("Average acc: {:.3f}".format(avg_acc))
