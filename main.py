@@ -8,6 +8,7 @@ import numpy as np
 import copy
 import logging
 logger = logging.getLogger(__name__)
+logging.getLogger("pytorch_transformers").setLevel(logging.WARNING)
 
 from settings import parse_args, model_classes
 from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, TimeFilter
@@ -158,6 +159,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 
 def main():
     args = parse_args()
+
 
     logging_format = "%(asctime)s - %(uptime)s - %(relative)ss - %(levelname)s - %(name)s - %(message)s"
     logging.basicConfig(format=logging_format,
