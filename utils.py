@@ -18,11 +18,8 @@ def prepare_inputs(batch, device):
 
 def pad_to_max_len(input_ids, masks=None):
     max_len = max(len(input_id) for input_id in input_ids)
+    masks = torch.tensor([[1]*len(input_id)+[0]*(max_len-len(input_id)) for input_id in input_ids], dtype=torch.long)
     input_ids = torch.tensor([input_id+[0]*(max_len-len(input_id)) for input_id in input_ids], dtype=torch.long)
-    if masks is None:
-        masks = torch.tensor([[1]*len(input_id)+[0]*(max_len-len(input_id)) for input_id in input_ids], dtype=torch.long)
-    else:
-        masks = torch.tensor([mask+[0]*(max_len-len(mask)) for mask in masks], dtype=torch.long)
     return input_ids, masks
 
 

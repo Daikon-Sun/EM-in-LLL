@@ -25,6 +25,7 @@ def parse_args():
     parser.add_argument("--adapt_steps", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=26)
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--fp16_test", action="store_true")
     parser.add_argument("--local_adapt_lr", type=float, default=2e-3)
     parser.add_argument("--local_lambda", type=float, default=1e-3)
     parser.add_argument("--learning_rate", type=float, default=2e-5)

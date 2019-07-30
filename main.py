@@ -1,20 +1,16 @@
 from apex import amp
 import os
 import torch
-torch.backends.cudnn.benchmark=True
 from pytorch_transformers import AdamW, WarmupLinearSchedule, WarmupConstantSchedule
 from torch.utils.data import DataLoader
 from torch import optim
-from tqdm import tqdm, trange
 import numpy as np
-from torch.multiprocessing import Pool, set_start_method
 import copy
 import logging
 logger = logging.getLogger(__name__)
 
-
 from settings import parse_args, model_classes
-from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, TimeFilter, pad_to_max_len
+from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, TimeFilter
 from memory import Memory
 
 
@@ -24,22 +20,28 @@ def local_adapt(input_ids, labels, q_input_ids, q_masks, q_labels, tmp_model, ar
     q_labels = q_labels.to(args.device).detach()
 
     optimizer = optim.SGD(tmp_model.parameters(), lr=args.local_adapt_lr, momentum=0.9)
-    tmp_model, optimizer = amp.initialize(tmp_model, optimizer, opt_level="O3", verbosity=0)
+    if args.fp16_test:
+        tmp_model, optimizer = amp.initialize(tmp_model, optimizer, opt_level="O3", verbosity=0)
 
     tmp_model.zero_grad()
     for step in range(args.adapt_steps):
         tmp_model.train()
         loss = tmp_model(input_ids=q_input_ids, attention_mask=q_masks, labels=q_labels)[0] \
             + args.local_lambda * torch.sum((org_params - torch.cat([param.data.view(-1) for param in tmp_model.parameters()], 0))**2)
-        with amp.scale_loss(loss, optimizer) as scaled_loss:
-            scaled_loss.backward()
+        if args.fp16_test:
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            loss.backward()
         optimizer.step()
         tmp_model.zero_grad()
 
-    tmp_model.eval()
     with torch.no_grad():
         tmp_model.eval()
-        return tmp_model(input_ids=input_ids, labels=labels)[:2]
+        output = tmp_model(input_ids=input_ids, labels=labels)[:2]
+        del tmp_model, optimizer, input_ids, labels, q_input_ids, q_masks, q_labels
+        torch.cuda.empty_cache()
+        return output
 
 
 def test_task(args, model, memory, test_dataset):
@@ -51,7 +53,9 @@ def test_task(args, model, memory, test_dataset):
         save_model_path = os.path.join(args.output_dir, 'checkpoint')
         org_model = args.model_class.from_pretrained(save_model_path, config=model_config)
         org_model.to(args.device)
-        org_params = torch.cat([param.data.view(-1) for param in org_model.parameters()], 0).half()
+        org_params = torch.cat([param.data.view(-1) for param in org_model.parameters()], 0)
+        if args.fp16_test:
+            org_params = org_params.half()
         del org_model
     
     cur_loss, cur_acc = 0, 0
@@ -74,7 +78,8 @@ def test_task(args, model, memory, test_dataset):
             preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
             cur_acc += np.sum(preds == labels.detach().cpu().numpy())
             if (i+1) % args.logging_steps == 0:
-                logging.info("Local adapted {} examples...".format(i+1))
+                logging.info("Local adapted {}/{} examples , test loss: {:.3f} , test acc: {:.3f}".format(
+                    i+1, len(test_dataset), cur_loss / (i+1), cur_acc / (i+1)))
     else:
         for step, batch in enumerate(test_dataloader):
             n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
@@ -132,11 +137,8 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 
         if global_step % args.logging_steps == 0:
             logger.info("progress: {:.2f} , global step: {} , lr: {:.2E} , avg loss: {:.3f}".format(
-                (tot_n_inputs + 1) / updates_per_epoch, global_step,
+                tot_n_inputs / updates_per_epoch, global_step,
                 scheduler.get_lr()[0], tot_epoch_loss / tot_n_inputs))
-
-            if args.debug:
-                break
 
         if args.replay_interval >= 1 and (step + 1) % args.replay_interval == 0:
             input_ids, masks, labels = memory.sample(args.batch_size)
@@ -145,6 +147,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 
         del loss, input_ids, masks, labels
 
+    del optimizer, optimizer_grouped_parameters
     assert tot_n_inputs == len(train_dataset)
 
 
@@ -185,7 +188,6 @@ def main():
 
         logger.info("Start training {}...".format(task))
         train_task(args, model, memory, train_dataset, valid_dataset)
-        # model_save_path = os.path.join(args.output_dir, 'model-' + task.split('/')[-1])
         model_save_path = os.path.join(args.output_dir, 'checkpoint')
         torch.save(model.state_dict(), model_save_path)
         torch.cuda.empty_cache()
@@ -201,5 +203,5 @@ def main():
 
 
 if __name__ == "__main__":
-    set_start_method('spawn')
+    torch.backends.cudnn.benchmark=True
     main()
