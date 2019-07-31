@@ -1,13 +1,16 @@
-#!/bin/bash
+#!/bin/bash -i
 
-# task order 1
-python3 main.py \
-  --tasks yelp_review_full_csv ag_news_csv dbpedia_csv amazon_review_full_csv yahoo_answers_csv \
-  "$@"
+ADAPT_STEPS=16
+N_NEIGHBORS=16
 
-# python3 main.py \
-#   --tasks "datasets/yahoo_answers_csv" \
-#   --batch_size 30 \
-#   "$@"
+if [ "$2" == "0" ]; then
+    TASKS="yelp_review_full_csv ag_news_csv dbpedia_csv amazon_review_full_csv yahoo_answers_csv"
+elif [ "$2" == "1" ]; then
+    TASKS="dbpedia_csv yahoo_answers_csv ag_news_csv amazon_review_full_csv yelp_review_full_csv"
+elif [ "$2" == "2" ]; then
+    TASKS="yelp_review_full_csv yahoo_answers_csv amazon_review_full_csv dbpedia_csv ag_news_csv"
+elif [ "$2" == "3" ]; then
+    TASKS="ag_news_csv yelp_review_full_csv amazon_review_full_csv yahoo_answers_csv dbpedia_csv"
+fi
 
-# python3 main.py --tasks "datasets/ag_news_csv" --debug --adapt_steps 30 --output_dir output_test --batch_size 3
+CUDA_VISIBLE_DEVICES="$1" python3 main.py --tasks $TASKS --adapt_steps $ADAPT_STEPS --n_neighbors $N_NEIGHBORS --output_dir "output$2" --fp16_test
