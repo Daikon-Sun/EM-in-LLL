@@ -43,7 +43,7 @@ def parse_args():
     parser.add_argument("--replay_interval", type=int, default=100)
     parser.add_argument("--reproduce", action="store_true")
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument("--tasks", type=str, default="datasets/ag_news_csv")
+    parser.add_argument("--tasks", nargs='+', default="ag_news_csv")
     parser.add_argument("--valid_ratio", type=float, default=0)
     parser.add_argument("--warmup_steps", type=int, default=0)
     parser.add_argument("--weight_decay", type=float, default=0)
@@ -62,7 +62,6 @@ def parse_args():
             raise ValueError("Output directory exists!")
     else:
         os.makedirs(args.output_dir)
-    args.tasks = args.tasks.split('&')
     args.n_gpu = torch.cuda.device_count()
     args.device = "cuda" if args.n_gpu > 0 else "cpu"
     if args.debug:

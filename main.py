@@ -67,7 +67,7 @@ def test_task(args, model, memory, test_dataset):
             if args.fp16_test:
                 org_params = org_params.half()
             del org_model
-    
+
         q_input_ids, q_masks, q_labels = [], [], []
         for step, batch in enumerate(test_dataloader):
             n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
@@ -84,7 +84,7 @@ def test_task(args, model, memory, test_dataset):
             loss, logits = local_adapt(input_ids, labels, q_input_ids[i], q_masks[i], q_labels[i], copy.deepcopy(model), args, org_params)
             cur_loss, cur_acc = update_metrics(loss.item(), logits, cur_loss, cur_acc)
             if (i+1) % args.logging_steps == 0:
-                logging.info("Local adapted {}/{} examples, test loss: {} , test acc: {}".format(
+                logging.info("Local adapted {}/{} examples, test loss: {:.3f} , test acc: {:.3f}".format(
                     i+1, len(test_dataset), cur_loss/(i+1), cur_acc/(i+1)))
     else:
         tot_n_inputs = 0
@@ -97,7 +97,7 @@ def test_task(args, model, memory, test_dataset):
                 loss, logits = outputs[:2]
             cur_loss, cur_acc = update_metrics(loss.item()*n_inputs, logits, cur_loss, cur_acc)
             if (step+1) % args.logging_steps == 0:
-                logging.info("Tested {}/{} examples , test loss: {} , test acc: {}".format(
+                logging.info("Tested {}/{} examples , test loss: {:.3f} , test acc: {:.3f}".format(
                     tot_n_inputs, len(test_dataset), cur_loss/tot_n_inputs, cur_acc/tot_n_inputs))
 
 
