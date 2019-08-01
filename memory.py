@@ -19,9 +19,8 @@ class Memory:
         self.device = args.device
         with torch.no_grad():
             logger.info("Initializing memory {} model".format(args.model_name))
-            self.model = BertModel.from_pretrained(args.model_name)
+            self.model = BertModel.from_pretrained(args.model_name).to(self.device)
             self.model.eval()
-            self.model.to(self.device)
         self.hidden_size = self.model.config.hidden_size
         self.max_len = self.model.config.max_position_embeddings
         self.keys, self.input_ids, self.labels = [], [], []

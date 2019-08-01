@@ -1,8 +1,5 @@
-from apex import amp
-from pytorch_transformers import AdamW, WarmupLinearSchedule, WarmupConstantSchedule
-from torch import optim
+from pytorch_transformers import AdamW, WarmupLinearSchedule
 from torch.utils.data import DataLoader
-import copy
 import logging
 import numpy as np
 import os
@@ -16,96 +13,25 @@ from settings import parse_args, model_classes
 from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, TimeFilter
 
 
-def local_adapt(input_ids, labels, q_input_ids, q_masks, q_labels, tmp_model, args, org_params):
-    q_input_ids = q_input_ids.to(args.device).detach()
-    q_masks = q_masks.to(args.device).detach()
-    q_labels = q_labels.to(args.device).detach()
-
-    optimizer = optim.SGD(tmp_model.parameters(), lr=args.adapt_lr, momentum=0.9)
-    # optimizer = AdamW(tmp_model.parameters(), lr=args.learning_rate, eps=1e-4)
-    # optimizer = optim.Adam(tmp_model.parameters(), lr=args.adapt_lr)
-    if args.fp16_test:
-        tmp_model, optimizer = amp.initialize(tmp_model, optimizer, opt_level="O3", verbosity=0)
-
-    tmp_model.zero_grad()
-    for step in range(args.adapt_steps):
-        tmp_model.train()
-        params = torch.cat([torch.reshape(param, [-1]) for param in tmp_model.parameters()], 0)
-        loss = tmp_model(input_ids=q_input_ids, attention_mask=q_masks, labels=q_labels)[0] \
-            + args.adapt_lambda * torch.sum((org_params - params)**2).float()
-
-        if args.fp16_test:
-            with amp.scale_loss(loss, optimizer) as scaled_loss:
-                scaled_loss.backward()
-        else:
-            loss.backward()
-        optimizer.step()
-        tmp_model.zero_grad()
-
-    with torch.no_grad():
-        tmp_model.eval()
-        output = tmp_model(input_ids=input_ids, labels=labels)[:2]
-        del tmp_model, optimizer, input_ids, labels, q_input_ids, q_masks, q_labels
-        torch.cuda.empty_cache()
-        return output
-
-
-def test_task(args, memory, test_dataset):
+def query_neighbors(task_id, args, memory, test_dataset):
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 8,
                                  num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
 
-    model_config = args.config_class.from_pretrained(args.model_name, num_labels=args.n_labels, hidden_dropout_prob=0, attention_probs_dropout_prob=0)
-    save_model_path = os.path.join(args.output_dir, 'checkpoint')
-    model = args.model_class.from_pretrained(save_model_path, config=model_config).to(args.device)
+    pickle.dump(test_dataloader, open(os.path.join(args.output_dir, 'dataloader-{}'.format(task_id)), 'wb'))
 
-    def update_metrics(loss, logits, cur_loss, cur_acc):
-        preds = np.argmax(logits.detach().cpu().numpy(), axis=1)
-        return cur_loss + loss, cur_acc + np.sum(preds == labels.detach().cpu().numpy())
-
-    cur_loss, cur_acc = 0, 0
-    if args.adapt_steps >= 1:
+    q_input_ids, q_masks, q_labels = [], [], []
+    for step, batch in enumerate(test_dataloader):
+        n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
         with torch.no_grad():
-            org_params = torch.cat([torch.reshape(param, [-1]) for param in model.parameters()], 0)
-            if args.fp16_test:
-                org_params = org_params.half()
-            del org_model
-
-        q_input_ids, q_masks, q_labels = [], [], []
-        for step, batch in enumerate(test_dataloader):
-            n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
-            with torch.no_grad():
-                cur_q_input_ids, cur_q_masks, cur_q_labels = memory.query(input_ids, masks)
-            q_input_ids.extend(cur_q_input_ids)
-            q_masks.extend(cur_q_masks)
-            q_labels.extend(cur_q_labels)
-
-        for i in range(len(test_dataset)):
-            labels, input_ids = test_dataset[i]
-            labels = torch.tensor(np.expand_dims(labels, 0), dtype=torch.long).to(args.device)
-            input_ids = torch.tensor(np.expand_dims(input_ids, 0), dtype=torch.long).to(args.device)
-            loss, logits = local_adapt(input_ids, labels, q_input_ids[i], q_masks[i], q_labels[i], copy.deepcopy(model), args, org_params)
-            cur_loss, cur_acc = update_metrics(loss.item(), logits, cur_loss, cur_acc)
-            if (i+1) % args.logging_steps == 0:
-                logging.info("Local adapted {}/{} examples, test loss: {:.3f} , test acc: {:.3f}".format(
-                    i+1, len(test_dataset), cur_loss/(i+1), cur_acc/(i+1)))
-    else:
-        tot_n_inputs = 0
-        for step, batch in enumerate(test_dataloader):
-            n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
-            tot_n_inputs += n_inputs
-            with torch.no_grad():
-                model.eval()
-                outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
-                loss, logits = outputs[:2]
-            cur_loss, cur_acc = update_metrics(loss.item()*n_inputs, logits, cur_loss, cur_acc)
-            if (step+1) % args.logging_steps == 0:
-                logging.info("Tested {}/{} examples , test loss: {:.3f} , test acc: {:.3f}".format(
-                    tot_n_inputs, len(test_dataset), cur_loss/tot_n_inputs, cur_acc/tot_n_inputs))
-
-
-    logger.info("test loss: {:.3f} , test acc: {:.3f}".format(
-        cur_loss / len(test_dataset), cur_acc / len(test_dataset)))
-    return cur_acc / len(test_dataset)
+            cur_q_input_ids, cur_q_masks, cur_q_labels = memory.query(input_ids, masks)
+        q_input_ids.extend(cur_q_input_ids)
+        q_masks.extend(cur_q_masks)
+        q_labels.extend(cur_q_labels)
+        if (step+1) % args.logging_steps == 0:
+            logging.info("Queried {} examples".format(step+1))
+    pickle.dump(q_input_ids, open(os.path.join(args.output_dir, 'q_input_ids-{}'.format(task_id)), 'wb'))
+    pickle.dump(q_masks, open(os.path.join(args.output_dir, 'q_masks-{}'.format(task_id)), 'wb'))
+    pickle.dump(q_labels, open(os.path.join(args.output_dir, 'q_labels-{}'.format(task_id)), 'wb'))
 
 
 def train_task(args, model, memory, train_dataset, valid_dataset):
@@ -187,7 +113,7 @@ def main():
     model.to(args.device)
     memory = Memory(args)
 
-    for task in args.tasks:
+    for task_id, task in enumerate(args.tasks):
         train_dataset = TextClassificationDataset(task, "train", args, tokenizer)
 
         if args.valid_ratio > 0:
@@ -197,23 +123,20 @@ def main():
 
         logger.info("Start training {}...".format(task))
         train_task(args, model, memory, train_dataset, valid_dataset)
-        model_save_path = os.path.join(args.output_dir, 'checkpoint')
+        model_save_path = os.path.join(args.output_dir, 'checkpoint-{}'.format(task_id))
         torch.save(model.state_dict(), model_save_path)
         torch.cuda.empty_cache()
-        pickle.dump(memory, open(os.path.join(args.output_dir, 'memory'), 'wb'))
+        pickle.dump(memory, open(os.path.join(args.output_dir, 'memory-{}'.format(task_id)), 'wb'))
 
 
     if args.adapt_steps >= 1:
         memory.build_tree()
-
     del model
-    avg_acc = 0
-    for task in args.tasks:
+
+    for task_id, task in enumerate(args.tasks):
         test_dataset = TextClassificationDataset(task, "test", args, tokenizer)
-        logger.info("Start testing {}...".format(task))
-        task_acc = test_task(args, memory, test_dataset)
-        avg_acc += task_acc / len(args.tasks)
-    logger.info("Average acc: {:.3f}".format(avg_acc))
+        logger.info("Start querying {}...".format(task))
+        query_neighbors(task_id, args, memory, test_dataset)
 
 
 if __name__ == "__main__":

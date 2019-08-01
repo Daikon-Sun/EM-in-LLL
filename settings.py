@@ -24,7 +24,6 @@ def parse_args():
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
     parser.add_argument("--adapt_steps", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=26)
-    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--fp16_test", action="store_true")
     parser.add_argument("--adapt_lr", type=float, default=2e-3)
@@ -58,14 +57,13 @@ def parse_args():
         args.overwrite = True
 
     if os.path.exists(args.output_dir):
-        if args.overwrite or args.resume:
+        if args.overwrite:
             choice = 'y'
         else:
             choice = input("Output directory ({}) exists! Remove? ".format(args.output_dir))
         if choice.lower()[0] == 'y':
-            if not args.resume:
-                shutil.rmtree(args.output_dir)
-                os.makedirs(args.output_dir)
+            shutil.rmtree(args.output_dir)
+            os.makedirs(args.output_dir)
         else:
             raise ValueError("Output directory exists!")
     else:
