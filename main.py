@@ -122,7 +122,6 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=tot_train_step)
 
-    updates_per_epoch = len(train_dataset)
     model.zero_grad()
     tot_epoch_loss, tot_n_inputs = 0, 0
 
@@ -144,7 +143,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 
         if (step+1) % args.logging_steps == 0:
             logger.info("progress: {:.2f} , global step: {} , lr: {:.2E} , avg loss: {:.3f}".format(
-                tot_n_inputs/updates_per_epoch, step+1, scheduler.get_lr()[0], tot_epoch_loss/tot_n_inputs))
+                tot_n_inputs/len(train_dataset), step+1, scheduler.get_lr()[0], tot_epoch_loss/tot_n_inputs))
 
         if args.replay_interval >= 1 and (step+1) % args.replay_interval == 0:
             input_ids, masks, labels = memory.sample(args.batch_size)
