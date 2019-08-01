@@ -1,18 +1,19 @@
 from apex import amp
-import os
-import torch
 from pytorch_transformers import AdamW, WarmupLinearSchedule, WarmupConstantSchedule
-from torch.utils.data import DataLoader
 from torch import optim
-import numpy as np
+from torch.utils.data import DataLoader
 import copy
 import logging
+import numpy as np
+import os
+import pickle
+import torch
 logger = logging.getLogger(__name__)
 logging.getLogger("pytorch_transformers").setLevel(logging.WARNING)
 
+from memory import Memory
 from settings import parse_args, model_classes
 from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, TimeFilter
-from memory import Memory
 
 
 def local_adapt(input_ids, labels, q_input_ids, q_masks, q_labels, tmp_model, args, org_params):
@@ -198,6 +199,7 @@ def main():
         model_save_path = os.path.join(args.output_dir, 'checkpoint')
         torch.save(model.state_dict(), model_save_path)
         torch.cuda.empty_cache()
+        pickle.dump(memory, open(os.path.join(args.output_dir, 'memory'), 'wb'))
 
 
     if args.adapt_steps >= 1:
