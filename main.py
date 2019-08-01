@@ -31,7 +31,8 @@ def local_adapt(input_ids, labels, q_input_ids, q_masks, q_labels, tmp_model, ar
     for step in range(args.adapt_steps):
         tmp_model.train()
         params = torch.cat([torch.reshape(param, [-1]) for param in tmp_model.parameters()], 0)
-        loss = tmp_model(input_ids=q_input_ids, attention_mask=q_masks, labels=q_labels)[0] + torch.sum((org_params - params)**2).float()
+        loss = tmp_model(input_ids=q_input_ids, attention_mask=q_masks, labels=q_labels)[0] \
+            + args.local_lambda * torch.sum((org_params - params)**2).float()
 
         if args.fp16_test:
             with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -50,7 +51,7 @@ def local_adapt(input_ids, labels, q_input_ids, q_masks, q_labels, tmp_model, ar
 
 
 def test_task(args, model, memory, test_dataset):
-    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 6,
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 8,
                                  num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
 
     def update_metrics(loss, logits, cur_loss, cur_acc):
