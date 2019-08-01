@@ -123,7 +123,6 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
     scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=tot_train_step)
 
     updates_per_epoch = len(train_dataset)
-    global_step = 0
     model.zero_grad()
     tot_epoch_loss, tot_n_inputs = 0, 0
 
@@ -140,13 +139,12 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
         memory.add(input_ids, masks, labels)
         loss = model(input_ids=input_ids, attention_mask=masks, labels=labels)[0]
         update_parameters(loss)
-        global_step += 1
         tot_n_inputs += n_inputs
         tot_epoch_loss += loss.item() * n_inputs
 
-        if global_step % args.logging_steps == 0:
+        if (step+1) % args.logging_steps == 0:
             logger.info("progress: {:.2f} , global step: {} , lr: {:.2E} , avg loss: {:.3f}".format(
-                tot_n_inputs/updates_per_epoch, global_step, scheduler.get_lr()[0], tot_epoch_loss/tot_n_inputs))
+                tot_n_inputs/updates_per_epoch, step+1, scheduler.get_lr()[0], tot_epoch_loss/tot_n_inputs))
 
         if args.replay_interval >= 1 and (step+1) % args.replay_interval == 0:
             input_ids, masks, labels = memory.sample(args.batch_size)
@@ -155,8 +153,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 
         del loss, input_ids, masks, labels
 
-    logger.info("Finsih training, global step: {} , avg loss: {:.3f}".format(
-        global_step, tot_epoch_loss/tot_n_inputs))
+    logger.info("Finsih training, avg loss: {:.3f}".format(tot_epoch_loss/tot_n_inputs))
     del optimizer, optimizer_grouped_parameters
     assert tot_n_inputs == len(train_dataset)
 
@@ -167,7 +164,7 @@ def main():
 
     logging_format = "%(asctime)s - %(uptime)s - %(relative)ss - %(levelname)s - %(name)s - %(message)s"
     logging.basicConfig(format=logging_format,
-                        filename=os.path.join(args.output_dir, 'log.txt'),
+                        filename=os.path.join(args.output_dir, 'log_train.txt'),
                         filemode='w', level=logging.INFO)
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(logging.Formatter(logging_format))
@@ -184,7 +181,7 @@ def main():
     model_config = args.config_class.from_pretrained(args.model_name, num_labels=args.n_labels)
     config_save_path = os.path.join(args.output_dir, 'config')
     model_config.to_json_file(config_save_path)
-    logger.info("Loading main {} model".format(args.model_name))
+    logger.info("Initializing main {} model".format(args.model_name))
     model = args.model_class.from_pretrained(args.model_name, config=model_config)
     model.to(args.device)
     memory = Memory(args)
@@ -202,6 +199,7 @@ def main():
         model_save_path = os.path.join(args.output_dir, 'checkpoint')
         torch.save(model.state_dict(), model_save_path)
         torch.cuda.empty_cache()
+
 
     if args.adapt_steps >= 1:
         memory.build_tree()

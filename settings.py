@@ -24,6 +24,7 @@ def parse_args():
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
     parser.add_argument("--adapt_steps", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=26)
+    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--fp16_test", action="store_true")
     parser.add_argument("--local_adapt_lr", type=float, default=2e-3)
@@ -43,29 +44,33 @@ def parse_args():
     parser.add_argument("--replay_interval", type=int, default=100)
     parser.add_argument("--reproduce", action="store_true")
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument("--tasks", nargs='+', default="ag_news_csv")
+    parser.add_argument("--tasks", nargs='+', default=["ag_news_csv"])
     parser.add_argument("--valid_ratio", type=float, default=0)
     parser.add_argument("--warmup_steps", type=int, default=0)
     parser.add_argument("--weight_decay", type=float, default=0)
 
     args = parser.parse_args()
 
+    if args.debug:
+        args.n_train = 500
+        args.n_test = 100
+        args.output_dir = "output_debug"
+        args.overwrite = True
+
     if os.path.exists(args.output_dir):
-        if args.overwrite:
+        if args.overwrite or args.resume:
             choice = 'y'
         else:
             choice = input("Output directory ({}) exists! Remove? ".format(args.output_dir))
         if choice.lower()[0] == 'y':
-            shutil.rmtree(args.output_dir)
-            os.makedirs(args.output_dir)
+            if not args.resume:
+                shutil.rmtree(args.output_dir)
+                os.makedirs(args.output_dir)
         else:
             raise ValueError("Output directory exists!")
     else:
         os.makedirs(args.output_dir)
     args.n_gpu = torch.cuda.device_count()
     args.device = "cuda" if args.n_gpu > 0 else "cpu"
-    if args.debug:
-        args.n_train = 500
-        args.n_test = 100
     return args
 

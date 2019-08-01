@@ -18,7 +18,7 @@ class Memory:
         self.n_neighbors = args.n_neighbors
         self.device = args.device
         with torch.no_grad():
-            logger.info("Loading memory {} model".format(args.model_name))
+            logger.info("Initializing memory {} model".format(args.model_name))
             self.model = BertModel.from_pretrained(args.model_name)
             self.model.eval()
             self.model.to(self.device)
