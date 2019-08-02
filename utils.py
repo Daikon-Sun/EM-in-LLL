@@ -88,7 +88,7 @@ class DynamicBatchSampler(Sampler):
         max_len = 0
         batch = []
         for idx in np.random.randint(self.n_samples, size=(self.n_samples,), dtype=np.int32):
-            if max(max_len, len(self.dataset[idx][1]))**2 * (len(batch) + 1) > self.batch_size:
+            if max(max_len, len(self.dataset[idx][1]))**1.17 * (len(batch) + 1) > self.batch_size:
                 yield batch
                 max_len = 0
                 batch = []

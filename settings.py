@@ -22,12 +22,12 @@ def parse_args():
     parser = argparse.ArgumentParser("Lifelong Language Learning")
 
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
+    parser.add_argument("--adapt_lambda", type=float, default=1e-3)
+    parser.add_argument("--adapt_lr", type=float, default=2e-3)
     parser.add_argument("--adapt_steps", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=0)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--fp16_test", action="store_true")
-    parser.add_argument("--adapt_lr", type=float, default=2e-3)
-    parser.add_argument("--adapt_lambda", type=float, default=1e-3)
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--logging_steps", type=int, default=500)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
@@ -42,11 +42,11 @@ def parse_args():
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--replay_interval", type=int, default=100)
     parser.add_argument("--reproduce", action="store_true")
-    parser.add_argument('--seed', type=int, default=42)
     parser.add_argument("--tasks", nargs='+', default=["ag_news_csv"])
     parser.add_argument("--valid_ratio", type=float, default=0)
     parser.add_argument("--warmup_steps", type=int, default=0)
     parser.add_argument("--weight_decay", type=float, default=0)
+    parser.add_argument('--seed', type=int, default=42)
 
     args = parser.parse_args()
 
@@ -61,7 +61,7 @@ def parse_args():
     torch.cuda.set_device(args.device_id)
     memory_size = GPUtil.getGPUs()[args.device_id].memoryTotal
     if args.batch_size <= 0:
-        args.batch_size = int(memory_size * 60)
+        args.batch_size = int(memory_size * 0.38)
 
     if os.path.exists(args.output_dir):
         if args.overwrite:
