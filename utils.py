@@ -89,3 +89,14 @@ class TimeFilter(logging.Filter):
         record.uptime = str(datetime.timedelta(seconds=record.relativeCreated//1000))
         self.last = record.relativeCreated
         return True
+
+def init_logging(filename):
+    logging_format = "%(asctime)s - %(uptime)s - %(relative)ss - %(levelname)s - %(name)s - %(message)s"
+    logging.basicConfig(format=logging_format, filename=filename, filemode='w', level=logging.INFO)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(logging_format))
+    root_logger = logging.getLogger()
+    root_logger.addHandler(console_handler)
+    for handler in root_logger.handlers:
+        handler.addFilter(TimeFilter())
+
