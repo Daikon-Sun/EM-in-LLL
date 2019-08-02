@@ -10,7 +10,8 @@ logging.getLogger("pytorch_transformers").setLevel(logging.WARNING)
 
 from memory import Memory
 from settings import parse_args, model_classes
-from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, init_logging, BatchSampler
+from utils import TextClassificationDataset, DynamicBatchSampler
+from utils import dynamic_collate_fn, prepare_inputs, init_logging
 
 
 def query_neighbors(task_id, args, memory, test_dataset):
@@ -38,7 +39,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
     # train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.n_workers,
     #                               shuffle=not args.reproduce, collate_fn=dynamic_collate_fn)
     train_dataloader = DataLoader(train_dataset, num_workers=args.n_workers, collate_fn=dynamic_collate_fn,
-                                  batch_sampler=BatchSampler(train_dataset, args.batch_size))
+                                  batch_sampler=DynamicBatchSampler(train_dataset, args.batch_size))
     # if valid_dataset:
     #     valid_dataloader = DataLoader(valid_dataset, batch_size=args.batch_size * 6,
     #                                   num_workers=args.n_workers, collate_fn=dynamic_collate_fn)

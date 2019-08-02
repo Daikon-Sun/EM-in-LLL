@@ -78,7 +78,7 @@ class TextClassificationDataset(Dataset):
         return (int(row[0]) + self.label_offset, self.tokenizer.encode(context))
 
 
-class BatchSampler(Sampler):
+class DynamicBatchSampler(Sampler):
     def __init__(self, dataset, batch_size):
         self.dataset = dataset
         self.batch_size = batch_size
