@@ -1,6 +1,7 @@
 import os
 import argparse
 import shutil
+import GPUtil
 from multiprocessing import cpu_count
 import torch
 from pytorch_transformers import BertForSequenceClassification, BertTokenizer, BertConfig
@@ -23,7 +24,7 @@ def parse_args():
 
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
     parser.add_argument("--adapt_steps", type=int, default=20)
-    parser.add_argument("--batch_size", type=int, default=26)
+    parser.add_argument("--batch_size", type=int, default=0)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--fp16_test", action="store_true")
     parser.add_argument("--adapt_lr", type=float, default=2e-3)
@@ -56,6 +57,13 @@ def parse_args():
         args.output_dir = "output_debug"
         args.overwrite = True
 
+    # args.n_gpu = torch.cuda.device_count()
+    args.device_id = GPUtil.getFirstAvailable()[0]
+    torch.cuda.set_device(args.device_id)
+    memory_size = GPUtil.getGPUs()[args.device_id].memoryTotal
+    if args.batch_size <= 0:
+        args.batch_size = int(memory_size * 65)
+
     if os.path.exists(args.output_dir):
         if args.overwrite:
             choice = 'y'
@@ -68,7 +76,5 @@ def parse_args():
             raise ValueError("Output directory exists!")
     else:
         os.makedirs(args.output_dir)
-    args.n_gpu = torch.cuda.device_count()
-    args.device = "cuda" if args.n_gpu > 0 else "cpu"
     return args
 

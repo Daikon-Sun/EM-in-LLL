@@ -20,7 +20,7 @@ def query_neighbors(task_id, args, memory, test_dataset):
 
     q_input_ids, q_masks, q_labels = [], [], []
     for step, batch in enumerate(test_dataloader):
-        n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
+        n_inputs, input_ids, masks, labels = prepare_inputs(batch)
         with torch.no_grad():
             cur_q_input_ids, cur_q_masks, cur_q_labels = memory.query(input_ids, masks)
         q_input_ids.extend(cur_q_input_ids)
@@ -62,7 +62,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 
     for step, batch in enumerate(train_dataloader):
         model.train()
-        n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
+        n_inputs, input_ids, masks, labels = prepare_inputs(batch)
         memory.add(input_ids, masks, labels)
         loss = model(input_ids=input_ids, attention_mask=masks, labels=labels)[0]
         update_parameters(loss)
@@ -99,8 +99,7 @@ def main():
     model_config = config_class.from_pretrained(args.model_name, num_labels=args.n_labels)
     config_save_path = os.path.join(args.output_dir, 'config')
     model_config.to_json_file(config_save_path)
-    model = model_class.from_pretrained(args.model_name, config=model_config)
-    model.to(args.device)
+    model = model_class.from_pretrained(args.model_name, config=model_config).cuda()
     memory = Memory(args)
 
     for task_id, task in enumerate(args.tasks):
@@ -115,7 +114,6 @@ def main():
         train_task(args, model, memory, train_dataset, valid_dataset)
         model_save_path = os.path.join(args.output_dir, 'checkpoint-{}'.format(task_id))
         torch.save(model.state_dict(), model_save_path)
-        torch.cuda.empty_cache()
         pickle.dump(memory, open(os.path.join(args.output_dir, 'memory-{}'.format(task_id)), 'wb'))
 
 

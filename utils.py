@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 from settings import parse_args, label_offsets
 
 
-def prepare_inputs(batch, device):
-    input_ids, masks, labels = tuple(b.to(device) for b in batch)
+def prepare_inputs(batch):
+    input_ids, masks, labels = tuple(b.cuda() for b in batch)
     return batch[0].shape[0], input_ids, masks, labels
 
 def pad_to_max_len(input_ids, masks=None):
