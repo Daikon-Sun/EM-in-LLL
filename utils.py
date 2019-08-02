@@ -1,12 +1,13 @@
 import csv
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 import os
 import torch
 from multiprocessing import Pool
 import random
 import logging
-logger = logging.getLogger(__name__)
 import datetime
+import numpy as np
+logger = logging.getLogger(__name__)
 
 
 from settings import parse_args, label_offsets
@@ -26,7 +27,6 @@ def pad_to_max_len(input_ids, masks=None):
 def dynamic_collate_fn(batch):
     labels, input_ids = list(zip(*batch))
     labels = torch.tensor([b[0] for b in batch], dtype=torch.long)
-    max_len = max(len(b[1]) for b in batch)
     input_ids, masks = pad_to_max_len(input_ids)
     return input_ids, masks, labels
 
@@ -76,6 +76,30 @@ class TextClassificationDataset(Dataset):
     def map_csv(self, row):
         context = '[CLS]' + ' '.join(row[1:])[:self.max_len-2] + '[SEP]'
         return (int(row[0]) + self.label_offset, self.tokenizer.encode(context))
+
+
+class BatchSampler(Sampler):
+    def __init__(self, dataset, batch_size):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.n_samples = len(dataset)
+
+    def __iter__(self):
+        max_len = 0
+        batch = []
+        for idx in np.random.randint(self.n_samples, size=(self.n_samples,), dtype=np.int32):
+            if max(max_len, len(self.dataset[idx][1]))**2 * (len(batch) + 1) > self.batch_size:
+                yield batch
+                max_len = 0
+                batch = []
+            max_len = max(max_len, len(self.dataset[idx][1]))
+            batch.append(idx)
+        if len(batch) > 0:
+            yield batch
+
+    def __len__(self):
+        raise NotImplementedError
+
 
 class TimeFilter(logging.Filter):
     def filter(self, record):
