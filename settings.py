@@ -2,7 +2,6 @@ import os
 import argparse
 import shutil
 import GPUtil
-from multiprocessing import cpu_count
 import torch
 from pytorch_transformers import BertForSequenceClassification, BertTokenizer, BertConfig
 
@@ -38,7 +37,7 @@ def parse_args():
     parser.add_argument("--n_neighbors", type=int, default=32)
     parser.add_argument("--n_test", type=int, default=7600)
     parser.add_argument("--n_train", type=int, default=115000)
-    parser.add_argument("--n_workers", type=int, default=cpu_count())
+    parser.add_argument("--n_workers", type=int, default=4)
     parser.add_argument("--output_dir", type=str, default="output0")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--replay_interval", type=int, default=100)
@@ -62,7 +61,7 @@ def parse_args():
     torch.cuda.set_device(args.device_id)
     memory_size = GPUtil.getGPUs()[args.device_id].memoryTotal
     if args.batch_size <= 0:
-        args.batch_size = int(memory_size * 64)
+        args.batch_size = int(memory_size * 60)
 
     if os.path.exists(args.output_dir):
         if args.overwrite:
