@@ -70,8 +70,8 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
         tot_epoch_loss += loss.item() * n_inputs
 
         if (step+1) % args.logging_steps == 0:
-            logger.info("progress: {:.2f} , global step: {} , lr: {:.2E} , avg loss: {:.3f}".format(
-                tot_n_inputs/args.n_train, step+1, scheduler.get_lr()[0], tot_epoch_loss/tot_n_inputs))
+            logger.info("progress: {:.2f} , step: {} , lr: {:.2E} , avg batch size: {:.1f} , avg loss: {:.3f}".format(
+                tot_n_inputs/args.n_train, step+1, scheduler.get_lr()[0], tot_n_inputs//(step+1), tot_epoch_loss/tot_n_inputs))
 
         if args.replay_interval >= 1 and (step+1) % args.replay_interval == 0:
             torch.cuda.empty_cache()
