@@ -48,7 +48,7 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
     ]
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=len(train_dataset)//4)
+    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=len(train_dataset)//10)
 
     model.zero_grad()
     tot_epoch_loss, tot_n_inputs = 0, 0
