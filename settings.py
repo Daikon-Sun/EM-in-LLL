@@ -58,7 +58,7 @@ def parse_args():
         args.overwrite = True
 
     # args.n_gpu = torch.cuda.device_count()
-    args.device_id = GPUtil.getFirstAvailable()[0]
+    args.device_id = GPUtil.getFirstAvailable(maxLoad=0.05, maxMemory=0.05)[0]
     torch.cuda.set_device(args.device_id)
     memory_size = GPUtil.getGPUs()[args.device_id].memoryTotal
     if args.batch_size <= 0:
