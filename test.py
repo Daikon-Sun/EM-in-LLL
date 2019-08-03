@@ -13,7 +13,6 @@ logging.getLogger("pytorch_transformers").setLevel(logging.WARNING)
 
 from settings import parse_test_args, model_classes, init_logging
 from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, DynamicBatchSampler
-from memory import Memory
 
 
 def local_adapt(input_ids, labels, tmp_model, q_input_ids, q_masks, q_labels, args, org_params):
@@ -46,7 +45,7 @@ def local_adapt(input_ids, labels, tmp_model, q_input_ids, q_masks, q_labels, ar
         return loss, logits
 
 
-def test_task(task_id, args, model, memory, test_dataset):
+def test_task(task_id, args, model, test_dataset):
 
     if not args.no_fp16_test:
         model = model.half()
@@ -113,18 +112,18 @@ def main():
     save_model_path = os.path.join(args.output_dir, 'checkpoint-{}'.format(len(args.tasks)-1))
     model = model_class.from_pretrained(save_model_path, config=model_config).cuda()
 
-    if args.adapt_steps >= 1:
-        logger.info("Build tree...")
-        memory = pickle.load(open(os.path.join(args.output_dir, 'memory-{}'.format(len(args.tasks)-1)), 'rb'))
-        memory.build_tree()
-    else:
-        memory = None
+    # if args.adapt_steps >= 1:
+    #     logger.info("Build tree...")
+    #     memory = pickle.load(open(os.path.join(args.output_dir, 'memory-{}'.format(len(args.tasks)-1)), 'rb'))
+    #     memory.build_tree()
+    # else:
+    #     memory = None
 
     avg_acc = 0
     for task_id, task in enumerate(args.tasks):
         logger.info("Start testing {}...".format(task))
         test_dataset = pickle.load(open(os.path.join(args.output_dir, 'test_dataset-{}'.format(task_id)), 'rb'))
-        task_acc = test_task(task_id, args, model, memory, test_dataset)
+        task_acc = test_task(task_id, args, model, test_dataset)
         avg_acc += task_acc / len(args.tasks)
     logger.info("Average acc: {:.3f}".format(avg_acc))
 
