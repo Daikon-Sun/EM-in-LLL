@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger("pytorch_transformers").setLevel(logging.WARNING)
 
 from settings import parse_test_args, model_classes, init_logging
-from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs
+from utils import TextClassificationDataset, dynamic_collate_fn, prepare_inputs, DynamicBatchSampler
 from memory import Memory
 
 
@@ -78,13 +78,14 @@ def test_task(task_id, args, model, memory, test_dataset):
                                      batch_sampler=DynamicBatchSampler(test_dataset, args.batch_size * 4))
         tot_n_inputs = 0
         for step, batch in enumerate(test_dataloader):
-            n_inputs, input_ids, masks, labels = prepare_inputs(batch, args.device)
+            n_inputs, input_ids, masks, labels = prepare_inputs(batch)
             tot_n_inputs += n_inputs
             with torch.no_grad():
                 model.eval()
                 outputs = model(input_ids=input_ids, attention_mask=masks, labels=labels)
-                loss, logits = outputs[:2]
-            cur_loss, cur_acc = update_metrics(loss.item()*n_inputs, logits, cur_loss, cur_acc)
+                loss = outputs[0].item()
+                logits = outputs[1].detach().cpu().numpy()
+            cur_loss, cur_acc = update_metrics(loss*n_inputs, logits, cur_loss, cur_acc)
             if (step+1) % args.logging_steps == 0:
                 logging.info("Tested {}/{} examples , test loss: {:.3f} , test acc: {:.3f}".format(
                     tot_n_inputs, len(test_dataset), cur_loss/tot_n_inputs, cur_acc/tot_n_inputs))
@@ -100,7 +101,10 @@ def main():
     args = parse_test_args()
     train_args = pickle.load(open(os.path.join(args.output_dir, 'train_args'), 'rb'))
     assert train_args.output_dir == args.output_dir
-    args.__dict__.update(train_args.__dict__)
+    train_args.__dict__.update(args.__dict__)
+    args = train_args
+    args.batch_size = 12342
+    # args.__dict__.update(train_args.__dict__)
     init_logging(os.path.join(args.output_dir, 'log_test.txt'))
     logger.info("args: " + str(args))
 
@@ -113,6 +117,8 @@ def main():
         logger.info("Build tree...")
         memory = pickle.load(open(os.path.join(args.output_dir, 'memory-{}'.format(len(args.tasks)-1)), 'rb'))
         memory.build_tree()
+    else:
+        memory = None
 
     avg_acc = 0
     for task_id, task in enumerate(args.tasks):
