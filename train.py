@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 logging.getLogger("pytorch_transformers").setLevel(logging.WARNING)
 
 from memory import Memory
-from settings import parse_args, model_classes
+from settings import parse_train_args, model_classes, init_logging
 from utils import TextClassificationDataset, DynamicBatchSampler
-from utils import dynamic_collate_fn, prepare_inputs, init_logging
+from utils import dynamic_collate_fn, prepare_inputs
 
 
 def query_neighbors(task_id, args, memory, test_dataset):
-    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size * 6,
-                                 num_workers=args.n_workers, collate_fn=dynamic_collate_fn)
+    test_dataloader = DataLoader(test_dataset, num_workers=args.n_workers, collate_fn=dynamic_collate_fn,
+                                 batch_sampler=DynamicBatchSampler(test_dataset, args.batch_size * 4))
 
 
     q_input_ids, q_masks, q_labels = [], [], []
@@ -28,7 +28,7 @@ def query_neighbors(task_id, args, memory, test_dataset):
         q_masks.extend(cur_q_masks)
         q_labels.extend(cur_q_labels)
         if (step+1) % args.logging_steps == 0:
-            logging.info("Queried {} examples".format(step+1))
+            logging.info("Queried {} examples".format(len(q_masks)))
     pickle.dump(q_input_ids, open(os.path.join(args.output_dir, 'q_input_ids-{}'.format(task_id)), 'wb'))
     pickle.dump(q_masks, open(os.path.join(args.output_dir, 'q_masks-{}'.format(task_id)), 'wb'))
     pickle.dump(q_labels, open(os.path.join(args.output_dir, 'q_labels-{}'.format(task_id)), 'wb'))
@@ -88,8 +88,8 @@ def train_task(args, model, memory, train_dataset, valid_dataset):
 
 
 def main():
-    args = parse_args()
-    pickle.dump(args, open(os.path.join(args.output_dir, 'args'), 'wb'))
+    args = parse_train_args()
+    pickle.dump(args, open(os.path.join(args.output_dir, 'train_args'), 'wb'))
     init_logging(os.path.join(args.output_dir, 'log_train.txt'))
     logger.info("args: " + str(args))
 
@@ -104,9 +104,11 @@ def main():
     memory = Memory(args)
 
     for task_id, task in enumerate(args.tasks):
+        logger.info("Start parsing {} train data...".format(task))
         train_dataset = TextClassificationDataset(task, "train", args, tokenizer)
 
         if args.valid_ratio > 0:
+            logger.info("Start parsing {} valid data...".format(task))
             valid_dataset = TextClassificationDataset(task, "valid", args, tokenizer)
         else:
             valid_dataset = None
@@ -118,11 +120,11 @@ def main():
         pickle.dump(memory, open(os.path.join(args.output_dir, 'memory-{}'.format(task_id)), 'wb'))
 
 
-    if args.adapt_steps >= 1:
-        memory.build_tree()
     del model
+    memory.build_tree()
 
     for task_id, task in enumerate(args.tasks):
+        logger.info("Start parsing {} test data...".format(task))
         test_dataset = TextClassificationDataset(task, "test", args, tokenizer)
         pickle.dump(test_dataset, open(os.path.join(args.output_dir, 'test_dataset-{}'.format(task_id)), 'wb'))
         logger.info("Start querying {}...".format(task))

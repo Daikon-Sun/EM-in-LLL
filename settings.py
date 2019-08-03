@@ -1,9 +1,11 @@
-import os
-import argparse
-import shutil
-import GPUtil
-import torch
 from pytorch_transformers import BertForSequenceClassification, BertTokenizer, BertConfig
+import GPUtil
+import argparse
+import datetime
+import logging
+import os
+import shutil
+import torch
 
 model_classes = {
     'bert': (BertConfig, BertForSequenceClassification, BertTokenizer),
@@ -18,16 +20,12 @@ label_offsets = {
     'yelp_review_full_csv': 3
 }
 
-def parse_args():
-    parser = argparse.ArgumentParser("Lifelong Language Learning")
+def parse_train_args():
+    parser = argparse.ArgumentParser("Train Lifelong Language Learning")
 
     parser.add_argument("--adam_epsilon", type=float, default=1e-8)
-    parser.add_argument("--adapt_lambda", type=float, default=1e-3)
-    parser.add_argument("--adapt_lr", type=float, default=2e-3)
-    parser.add_argument("--adapt_steps", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=0)
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--fp16_test", action="store_true")
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--logging_steps", type=int, default=500)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
@@ -52,6 +50,7 @@ def parse_args():
 
     if args.debug:
         args.n_train = 500
+        args.logging_steps = 1
         args.n_test = 100
         args.output_dir = "output_debug"
         args.overwrite = True
@@ -76,4 +75,41 @@ def parse_args():
     else:
         os.makedirs(args.output_dir)
     return args
+
+
+def parse_test_args():
+    parser = argparse.ArgumentParser("Test Lifelong Language Learning")
+
+    parser.add_argument("--adapt_lambda", type=float, default=1e-3)
+    parser.add_argument("--adapt_lr", type=float, default=2e-3)
+    parser.add_argument("--adapt_steps", type=int, default=20)
+    parser.add_argument("--no_fp16_test", action="store_true")
+    parser.add_argument("--output_dir", type=str, default="output0")
+
+    args = parser.parse_args()
+    return args
+
+
+class TimeFilter(logging.Filter):
+    def filter(self, record):
+        try:
+          last = self.last
+        except AttributeError:
+          last = record.relativeCreated
+
+        delta = record.relativeCreated/1000 - last/1000
+        record.relative = "{:.3f}".format(delta)
+        record.uptime = str(datetime.timedelta(seconds=record.relativeCreated//1000))
+        self.last = record.relativeCreated
+        return True
+
+def init_logging(filename):
+    logging_format = "%(asctime)s - %(uptime)s - %(relative)ss - %(levelname)s - %(name)s - %(message)s"
+    logging.basicConfig(format=logging_format, filename=filename, filemode='a', level=logging.INFO)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(logging_format))
+    root_logger = logging.getLogger()
+    root_logger.addHandler(console_handler)
+    for handler in root_logger.handlers:
+        handler.addFilter(TimeFilter())
 

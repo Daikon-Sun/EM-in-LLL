@@ -1,16 +1,13 @@
-import csv
-from torch.utils.data import Dataset, Sampler
-import os
-import torch
 from multiprocessing import Pool
-import random
-import logging
-import datetime
+from torch.utils.data import Dataset, Sampler
+import csv
 import numpy as np
-logger = logging.getLogger(__name__)
+import os
+import random
+import torch
 
 
-from settings import parse_args, label_offsets
+from settings import label_offsets
 
 
 def prepare_inputs(batch):
@@ -34,7 +31,6 @@ def dynamic_collate_fn(batch):
 class TextClassificationDataset(Dataset):
     def __init__(self, task, mode, args, tokenizer):
 
-        logger.info("Start parsing {} {} data...".format(task, mode))
         self.task = task
         self.mode = mode
         self.tokenizer = tokenizer
@@ -100,27 +96,4 @@ class DynamicBatchSampler(Sampler):
     def __len__(self):
         raise NotImplementedError
 
-
-class TimeFilter(logging.Filter):
-    def filter(self, record):
-        try:
-          last = self.last
-        except AttributeError:
-          last = record.relativeCreated
-
-        delta = record.relativeCreated/1000 - last/1000
-        record.relative = "{:.3f}".format(delta)
-        record.uptime = str(datetime.timedelta(seconds=record.relativeCreated//1000))
-        self.last = record.relativeCreated
-        return True
-
-def init_logging(filename):
-    logging_format = "%(asctime)s - %(uptime)s - %(relative)ss - %(levelname)s - %(name)s - %(message)s"
-    logging.basicConfig(format=logging_format, filename=filename, filemode='w', level=logging.INFO)
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter(logging_format))
-    root_logger = logging.getLogger()
-    root_logger.addHandler(console_handler)
-    for handler in root_logger.handlers:
-        handler.addFilter(TimeFilter())
 
