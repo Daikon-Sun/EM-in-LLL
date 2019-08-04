@@ -1,3 +1,4 @@
+j
 from pytorch_transformers import BertForSequenceClassification, BertTokenizer, BertConfig
 import GPUtil
 import argparse
@@ -19,6 +20,11 @@ label_offsets = {
     'yahoo_answers_csv': 22,
     'yelp_review_full_csv': 3
 }
+
+
+def set_device_id(args):
+    args.device_id = GPUtil.getFirstAvailable(maxLoad=0.05, maxMemory=0.05)[0]
+    torch.cuda.set_device(args.device_id)
 
 def parse_train_args():
     parser = argparse.ArgumentParser("Train Lifelong Language Learning")
@@ -55,9 +61,8 @@ def parse_train_args():
         args.output_dir = "output_debug"
         args.overwrite = True
 
-    # args.n_gpu = torch.cuda.device_count()
-    args.device_id = GPUtil.getFirstAvailable(maxLoad=0.05, maxMemory=0.05)[0]
-    torch.cuda.set_device(args.device_id)
+    set_device_id(args)
+
     memory_size = GPUtil.getGPUs()[args.device_id].memoryTotal
     if args.batch_size <= 0:
         args.batch_size = int(memory_size * 0.38)
@@ -87,6 +92,7 @@ def parse_test_args():
     parser.add_argument("--output_dir", type=str, default="output0")
 
     args = parser.parse_args()
+    set_device_id(args)
     return args
 
 
