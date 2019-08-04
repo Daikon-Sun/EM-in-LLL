@@ -21,10 +21,7 @@ def local_adapt(input_ids, labels, tmp_model, q_input_ids, q_masks, q_labels, ar
     q_masks = q_masks.cuda().detach()
     q_labels = q_labels.cuda().detach()
 
-    # optimizer = optim.RMSprop(tmp_model.parameters(), lr=args.adapt_lr)
     optimizer = optim.SGD(tmp_model.parameters(), lr=args.adapt_lr, momentum=0.9)
-    # optimizer = AdamW(tmp_model.parameters(), lr=args.learning_rate, eps=1e-4)
-    # optimizer = optim.Adam(tmp_model.parameters(), lr=args.adapt_lr)
 
     tmp_model.zero_grad()
     for step in range(args.adapt_steps):
@@ -100,10 +97,7 @@ def main():
     args = parse_test_args()
     train_args = pickle.load(open(os.path.join(args.output_dir, 'train_args'), 'rb'))
     assert train_args.output_dir == args.output_dir
-    train_args.__dict__.update(args.__dict__)
-    args = train_args
-    args.batch_size = 12342
-    # args.__dict__.update(train_args.__dict__)
+    args.__dict__.update(train_args.__dict__)
     init_logging(os.path.join(args.output_dir, 'log_test.txt'))
     logger.info("args: " + str(args))
 
@@ -111,13 +105,6 @@ def main():
     model_config = config_class.from_pretrained(args.model_name, num_labels=args.n_labels, hidden_dropout_prob=0, attention_probs_dropout_prob=0)
     save_model_path = os.path.join(args.output_dir, 'checkpoint-{}'.format(len(args.tasks)-1))
     model = model_class.from_pretrained(save_model_path, config=model_config).cuda()
-
-    # if args.adapt_steps >= 1:
-    #     logger.info("Build tree...")
-    #     memory = pickle.load(open(os.path.join(args.output_dir, 'memory-{}'.format(len(args.tasks)-1)), 'rb'))
-    #     memory.build_tree()
-    # else:
-    #     memory = None
 
     avg_acc = 0
     for task_id, task in enumerate(args.tasks):
